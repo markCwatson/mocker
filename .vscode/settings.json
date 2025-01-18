@@ -1,0 +1,6 @@
+{
+  "files.associations": {
+    "*.mdx": "markdown",
+    "signal.h": "c"
+  }
+}
