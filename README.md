@@ -1,78 +1,119 @@
-## Container runtime in C
+# _mocker_: a minimal container runtime in C
 
-This project is a custom implementation of a _Docker-like_ container runtime in C. It SHOWS how to create and manage lightweight, isolated environments for running applications, similar to how Docker operates. The project includes functionality for setting up network interfaces, creating process namespaces, and managing system resources within containers.
+This project implements a basic container runtime in C that demonstrates core container concepts like process isolation, filesystem isolation, and mount namespaces.
 
-Features:
+## Features
 
-- **Network Interface Management:** The project sets up virtual Ethernet (veth) pairs to enable network communication between the host and the container. It includes functions to clean up existing network interfaces and create new ones.
+- **Process Isolation**: Uses Linux namespaces (PID, Mount, UTS, IPC) to isolate processes
+- **Filesystem Isolation**: Creates an isolated filesystem using chroot
+- **Mount Namespace**: Sets up essential filesystem mounts (proc, sys, dev)
+- **Minimal Root Filesystem**: Uses busybox to provide basic Unix utilities
+- **Cleanup**: Properly unmounts filesystems and cleans up resources
 
-- **Namespace Isolation:** The project uses Linux namespaces to isolate various aspects of the container environment, such as process IDs (PID), mount points (NEWNS), UTS (hostname), IPC (inter-process communication), and network (NEWNET). This isolation ensures that the container operates independently of the host system.
+## Requirements
 
-- **Process Management:** The project uses the clone system call to create new processes within the isolated namespaces. It sets up a child process with its own stack and passes necessary arguments to it.
+- Linux system with namespace support
+- GCC compiler
+- busybox-static package
+- Root privileges (for namespace operations)
+- (optional) Docker
 
-- **Error Handling:** The project includes robust error handling to manage failures in memory allocation, network interface creation, and process cloning.
-
-## Environment setup
-
-### Option 1: Uisng a VM
-
-Run the executable on a VM.
+## Building
 
 ```shell
-# Install necessary tools
+# Install required packages (on Debian/Ubuntu)
 sudo apt-get update
-sudo apt-get install -y \
-    build-essential \
-    gcc \
-    libcurl4-openssl-dev \
-    iproute2 \
-    net-tools \
-    linux-headers-$(uname -r) \
-    busybox-static
+sudo apt-get install -y build-essential gcc busybox-static
+
+# Compile with full debugging symbols (use -DENABLE_LOGGING to enable logging)
+gcc -g -o mocker app/*.c -lcurl
 ```
 
+## Usages
+
+### Option 1: Linux VM
+
+You can run `mocker` inside a VM running Linux (tested with Kali) and execute a limited set of commands inside the _mocker_ container.
+
+The container runtime accepts commands in this format:
+
 ```shell
-# Clone project
-git clone https://github.com/markCwatson/mocker.git
-cd mocker
-
-# Compile with full debugging symbols
-gcc -g -o container-runtime app/*.c -lcurl
-
-# Run a basic test (as root/sudo)
-sudo ./container-runtime run ubuntu:latest /bin/ls /
-
-# Try running a command
-sudo ./container-runtime run ubuntu:latest /bin/echo "Hello from container"
-
-# Run with full system access (doesn't work yet)
-sudo ./container-runtime run ubuntu:latest /bin/ping -c 4 8.8.8.8
+sudo ./mocker run <image-name> <command> [args...]
 ```
 
-### Option 2: Uinsg Docker
+Note: The `image-name` argument is currently a placeholder as image handling is not implemented.
 
-We use linux-specific syscalls, so we'll run the code in a Docker container.
-
-Must have [Docker installed](https://docs.docker.com/get-docker/) and running.
-Next, add a shell alias (i.e. `nano ~/.zshrc`).
+Examples:
 
 ```shell
-alias mydocker='docker build --platform linux/arm64 -t mydocker . && docker run --platform linux/arm64 --privileged --cap-add="ALL" --device=/dev/net/tun --network=host mydocker'
+# List files in container
+sudo ./mocker run ubuntu:latest /bin/ls /
+
+# Run a shell in container
+sudo ./mocker run ubuntu:latest /bin/sh
+
+# Echo a message
+sudo ./mocker run ubuntu:latest /bin/echo "Hello from container"
+
+# Check processes
+sudo ./mocker run ubuntu:latest /bin/ps
+
+# Not implemented:
+sudo ./mocker run ubuntu:latest /bin/ping -c 4 8.8.8.8
+```
+
+### Option 2: Using Docker (wip)
+
+I am developing on a M4 Mac and am having issues related to the use of the x86 version of busybox.
+
+Add a shell alias (i.e. `nano ~/.zshrc`).
+
+```shell
+alias mocker='docker build --platform linux/arm64 -t mocker . && docker run --platform linux/arm64 --privileged --cap-add="ALL" --device=/dev/net/tun --network=host mocker'
 ```
 
 You can now test the program like this:
 
 ```shell
-mydocker run ubuntu:latest /bin/ls /
-mydocker run ubuntu:latest /bin/ps
-mydocker run ubuntu:latest /bin/echo "Hello from container"
+# run basic tests:
+mocker run ubuntu:latest /bin/ls /
+mocker run ubuntu:latest /bin/ps
+mocker run ubuntu:latest /bin/echo "Hello from container"
 
 # not implemented:
-mydocker run ubuntu:latest /bin/ping -c 4 8.8.8.8
+mocker run ubuntu:latest /bin/ping -c 4 8.8.8.8
 ```
 
 Cleanup.
 
 ```shell
-docker rmi mydocker -f
+docker rmi mocker -f
 ```
+
+## Current Limitations
+
+- No image handling (uses local busybox only)
+- No network namespace isolation
+- No resource limits (cgroups not implemented)
+- No user namespace isolation
+- Minimal command set through busybox
+- No persistent storage
+
+## Future Improvements
+
+Possible enhancements:
+
+- Add container image support
+- Implement network isolation
+- Add cgroups for resource control
+- Add user namespace support
+- Support for persistent volumes
+- Add more security features
+
+## Security Notes
+
+This is a educational implementation and lacks many security features of production container runtimes. Do not use on your host machine directly!
+
+## License
+
+This project is provided as-is for educational purposes.
