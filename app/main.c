@@ -54,7 +54,7 @@ void setup_container_root(void) {
 
   // Clean up any existing mocker root
   char cmd[PATH_MAX];
-  snLOG(cmd, sizeof(cmd), "rm -rf %s", CONTAINER_ROOT);
+  snprintf(cmd, sizeof(cmd), "rm -rf %s", CONTAINER_ROOT);
   system(cmd);
 
   // Create directories
@@ -66,11 +66,11 @@ void setup_container_root(void) {
     }
   }
 
-  snLOG(cmd, sizeof(cmd),
-        "cp /bin/busybox %s/bin/busybox && chmod +x %s/bin/busybox",
-        CONTAINER_ROOT, CONTAINER_ROOT);
+  snprintf(cmd, sizeof(cmd),
+           "cp /bin/busybox %s/bin/busybox && chmod +x %s/bin/busybox",
+           CONTAINER_ROOT, CONTAINER_ROOT);
   if (system(cmd) != 0) {
-    fLOG(stderr, "Failed to setup busybox!\n");
+    fprintf(stderr, "Failed to setup busybox!\n");
     exit(1);
   }
 
@@ -84,7 +84,7 @@ void setup_container_root(void) {
   getcwd(old_pwd, sizeof(old_pwd));
 
   char bin_path[PATH_MAX];
-  snLOG(bin_path, sizeof(bin_path), "%s/bin", CONTAINER_ROOT);
+  snprintf(bin_path, sizeof(bin_path), "%s/bin", CONTAINER_ROOT);
   chdir(bin_path);
 
   for (const char **cmd_ptr = commands; *cmd_ptr != NULL; cmd_ptr++) {
@@ -118,7 +118,7 @@ void setup_container_root(void) {
 
   // Print busybox info
   LOG("\nBusybox binary information:\n");
-  snLOG(cmd, sizeof(cmd), "file %s/bin/busybox", CONTAINER_ROOT);
+  snprintf(cmd, sizeof(cmd), "file %s/bin/busybox", CONTAINER_ROOT);
   system(cmd);
 }
 
@@ -138,7 +138,7 @@ void cleanup_container_root(void) {
 
   // Remove entire mocker root with all contents
   char cmd[PATH_MAX];
-  snLOG(cmd, sizeof(cmd), "rm -rf %s", CONTAINER_ROOT);
+  snprintf(cmd, sizeof(cmd), "rm -rf %s", CONTAINER_ROOT);
   LOG("Removing mocker root directory...\n");
   if (system(cmd) != 0) {
     LOG("Warning: Failed to remove mocker root: %s\n", strerror(errno));
@@ -176,12 +176,12 @@ int main(int argc, char *argv[]) {
   setbuf(stderr, NULL);
 
   if (argc < 4) {
-    fLOG(stderr, "Usage: %s run <image> <command> [args...]\n", argv[0]);
+    fprintf(stderr, "Usage: %s run <image> <command> [args...]\n", argv[0]);
     exit(1);
   }
 
   if (strcmp(argv[1], "run") != 0) {
-    fLOG(stderr, "Unknown command: %s\n", argv[1]);
+    fprintf(stderr, "Unknown command: %s\n", argv[1]);
     exit(1);
   }
 
