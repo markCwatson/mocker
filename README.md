@@ -2,6 +2,8 @@
 
 This project implements a basic container runtime in C that demonstrates core container concepts like process isolation, filesystem isolation, and mount namespaces.
 
+![alt-text][1]
+
 ## Features
 
 - **Process Isolation**: Uses Linux namespaces (PID, Mount, UTS, IPC) to isolate processes
@@ -117,3 +119,5 @@ This is a educational implementation and lacks many security features of product
 ## License
 
 This project is provided as-is for educational purposes.
+
+[1]: gif/mocker-demo.gif 'Demo of mocker container running'
