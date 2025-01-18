@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <linux/if.h>
+#include <linux/rtnetlink.h>
 #include <linux/sched.h>
 #include <net/if.h>
 #include <sched.h>
@@ -61,6 +63,18 @@ void handle_error(const char *msg) {
 }
 
 // Network functions
+void ensure_netns_dir() {
+  // Create the netns directory if it doesn't exist
+  if (mkdir("/var/run/netns", 0755) && errno != EEXIST) {
+    printf("Warning: Could not create /var/run/netns: %s\n", strerror(errno));
+  }
+
+  // Mount it as a bind mount to make it permanent
+  if (mount("none", "/var/run/netns", "tmpfs", 0, NULL) && errno != EBUSY) {
+    printf("Warning: Could not mount /var/run/netns: %s\n", strerror(errno));
+  }
+}
+
 void cleanup_network(const char *host_veth, const char *container_veth) {
   char cmd[200];
 
@@ -96,54 +110,147 @@ void cleanup_network(const char *host_veth, const char *container_veth) {
 }
 
 int create_veth_pair(const char *host_veth, const char *container_veth) {
-  char cmd[200];
+  ensure_netns_dir();
 
-  system("ip netns list");
-  system("ls -la /var/run/netns");
+  // Force cleanup any existing interfaces first
+  cleanup_network(host_veth, container_veth);
 
-  printf("\nDEBUG: Creating veth pair '%s' <-> '%s'\n", host_veth,
-         container_veth);
-
-  snprintf(cmd, sizeof(cmd), "ip link add %s type veth peer name %s 2>&1",
-           host_veth, container_veth);
-
-  if (system(cmd) != 0) {
-    printf("ERROR: Failed to create veth pair\n");
+  // Create netlink socket
+  int sock = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+  if (sock < 0) {
+    perror("Failed to open netlink socket");
     return -1;
   }
 
-  FILE *fp = popen(cmd, "r");
-  if (!fp) {
-    perror("Failed to execute command");
+  // Create request structure
+  struct {
+    struct nlmsghdr hdr;
+    struct ifinfomsg info;
+    char buf[1024];
+  } req = {
+      .hdr.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg)),
+      .hdr.nlmsg_type = RTM_NEWLINK,
+      .hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL,
+      .info.ifi_family = AF_UNSPEC,
+  };
+
+  // Add VETH specific attributes
+  struct rtattr *linkinfo =
+      (void *)((char *)&req + NLMSG_ALIGN(req.hdr.nlmsg_len));
+  linkinfo->rta_type = IFLA_LINKINFO;
+
+  // Add kind="veth"
+  struct rtattr *kind =
+      (void *)((char *)linkinfo + RTA_ALIGN(linkinfo->rta_len));
+  kind->rta_type = IFLA_INFO_KIND;
+  const char veth_kind[] = "veth";
+  kind->rta_len = RTA_LENGTH(sizeof(veth_kind));
+  memcpy(RTA_DATA(kind), veth_kind, sizeof(veth_kind));
+
+  // Update lengths
+  linkinfo->rta_len =
+      RTA_ALIGN(sizeof(struct rtattr)) + RTA_ALIGN(kind->rta_len);
+  req.hdr.nlmsg_len =
+      NLMSG_ALIGN(req.hdr.nlmsg_len) + RTA_ALIGN(linkinfo->rta_len);
+
+  // Add veth peer name
+  struct rtattr *data =
+      (void *)((char *)linkinfo + RTA_ALIGN(linkinfo->rta_len));
+  data->rta_type = IFLA_INFO_DATA;
+
+  struct rtattr *peer = (void *)((char *)data + RTA_ALIGN(data->rta_len));
+  peer->rta_type = VETH_INFO_PEER;
+  struct nlmsghdr *peer_hdr =
+      (void *)((char *)peer + RTA_ALIGN(sizeof(struct rtattr)));
+  peer_hdr->nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
+
+  struct ifinfomsg *peer_info = NLMSG_DATA(peer_hdr);
+  peer_info->ifi_family = AF_UNSPEC;
+
+  struct rtattr *peer_name =
+      (void *)((char *)peer_info + NLMSG_ALIGN(sizeof(struct ifinfomsg)));
+  peer_name->rta_type = IFLA_IFNAME;
+  peer_name->rta_len = RTA_LENGTH(strlen(container_veth) + 1);
+  memcpy(RTA_DATA(peer_name), container_veth, strlen(container_veth) + 1);
+
+  // Update all lengths
+  peer->rta_len =
+      RTA_ALIGN(sizeof(struct rtattr)) + NLMSG_ALIGN(sizeof(struct nlmsghdr)) +
+      NLMSG_ALIGN(sizeof(struct ifinfomsg)) + RTA_ALIGN(peer_name->rta_len);
+  data->rta_len = RTA_ALIGN(sizeof(struct rtattr)) + RTA_ALIGN(peer->rta_len);
+  linkinfo->rta_len += RTA_ALIGN(data->rta_len);
+  req.hdr.nlmsg_len += RTA_ALIGN(linkinfo->rta_len);
+
+  // Add host interface name
+  struct rtattr *name = (void *)((char *)&req + NLMSG_ALIGN(req.hdr.nlmsg_len));
+  name->rta_type = IFLA_IFNAME;
+  name->rta_len = RTA_LENGTH(strlen(host_veth) + 1);
+  memcpy(RTA_DATA(name), host_veth, strlen(host_veth) + 1);
+  req.hdr.nlmsg_len = NLMSG_ALIGN(req.hdr.nlmsg_len) + RTA_ALIGN(name->rta_len);
+
+  // Send the netlink message
+  struct sockaddr_nl addr = {.nl_family = AF_NETLINK};
+  struct iovec iov = {&req, req.hdr.nlmsg_len};
+  struct msghdr msg = {
+      .msg_name = &addr,
+      .msg_namelen = sizeof(addr),
+      .msg_iov = &iov,
+      .msg_iovlen = 1,
+  };
+
+  if (sendmsg(sock, &msg, 0) < 0) {
+    perror("Failed to send netlink message");
+    close(sock);
     return -1;
   }
 
-  char buffer[256];
-  while (fgets(buffer, sizeof(buffer), fp)) {
-    printf("Command output: %s", buffer);
-  }
+  // Read response
+  char buf[4096];
+  struct iovec riov = {buf, sizeof(buf)};
+  struct msghdr rmsg = {
+      .msg_name = &addr,
+      .msg_namelen = sizeof(addr),
+      .msg_iov = &riov,
+      .msg_iovlen = 1,
+  };
 
-  int status = pclose(fp);
-  if (status != 0) {
-    printf("Command failed with status %d\n", status);
+  ssize_t recv_len = recvmsg(sock, &rmsg, 0);
+  if (recv_len < 0) {
+    perror("Failed to receive netlink response");
+    close(sock);
     return -1;
   }
 
-  // Set both interfaces up
-  snprintf(cmd, sizeof(cmd), "ip link set %s up", host_veth);
-  if (system(cmd) != 0) {
-    printf("ERROR: Failed to set %s up\n", host_veth);
+  // Set interfaces up using netlink
+  struct ifreq ifr;
+  int ctl_sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (ctl_sock < 0) {
+    perror("Failed to create control socket");
+    close(sock);
     return -1;
   }
 
-  snprintf(cmd, sizeof(cmd), "ip link set %s up", container_veth);
-  if (system(cmd) != 0) {
-    printf("ERROR: Failed to set %s up\n", container_veth);
+  // Set host interface up
+  memset(&ifr, 0, sizeof(ifr));
+  strncpy(ifr.ifr_name, host_veth, IFNAMSIZ - 1);
+  if (ioctl(ctl_sock, SIOCGIFFLAGS, &ifr) < 0) {
+    perror("Failed to get interface flags");
+    close(ctl_sock);
+    close(sock);
     return -1;
   }
 
-  printf("DEBUG: Successfully created and configured both interfaces\n");
-  system("ip link show");  // Show final state
+  ifr.ifr_flags |= IFF_UP;
+  if (ioctl(ctl_sock, SIOCSIFFLAGS, &ifr) < 0) {
+    perror("Failed to set interface up");
+    close(ctl_sock);
+    close(sock);
+    return -1;
+  }
+
+  printf("Successfully created and configured network interfaces\n");
+  close(ctl_sock);
+  close(sock);
   return 0;
 }
 

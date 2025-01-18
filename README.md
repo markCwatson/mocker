@@ -12,21 +12,32 @@ Features:
 
 - **Error Handling:** The project includes robust error handling to manage failures in memory allocation, network interface creation, and process cloning.
 
-### Building and running
+### Environment setup
 
-We use linux-specific syscalls, so we'll run the code
-in a Docker container.
+Run the executable on a VM.
 
-Must have [Docker installed](https://docs.docker.com/get-docker/).
-
-Next, add a shell alias (i.e. `nano ~/.zshrc`).
-
-```sh
-alias mydocker='docker build --platform linux/arm64 -t mydocker . && docker run --platform linux/arm64 --privileged --cap-add="ALL" --device=/dev/net/tun --network=host mydocker'
+```shell
+# Install necessary tools
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential \
+    gcc \
+    libcurl4-openssl-dev \
+    iproute2 \
+    net-tools \
+    linux-headers-$(uname -r)
 ```
 
-You can now execute the program like this:
+### Building and running
 
-```sh
-mydocker run alpine:latest /bin/ping -c 4 8.8.8.8
+```shell
+# Clone project
+git clone https://github.com/markCwatson/mocker.git
+cd mocker
+
+# Compile with full debugging symbols
+gcc -g -o container-runtime app/*.c -lcurl
+
+# Run with full system access
+sudo ./container-runtime run alpine:latest /bin/ping -c 4 8.8.8.8
 ```
