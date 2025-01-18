@@ -29,9 +29,8 @@ struct child_args {
 
 // Forward declarations
 void handle_error(const char *msg);
-void copy_directory(const char *src, const char *dst);
-void setup_filesystem(void);
-void cleanup_filesystem(void);
+void setup_container_root(void);
+void cleanup_container_root(void);
 int child_function(void *arg);
 
 // Error handling function
@@ -40,137 +39,114 @@ void handle_error(const char *msg) {
   exit(EXIT_FAILURE);
 }
 
-// Filesystem functions
-void copy_directory(const char *src, const char *dst) {
-  DIR *dir = opendir(src);
-  if (!dir) {
-    return;
-  }
+void setup_container_root(void) {
+  printf("Creating minimal container root at %s\n", CONTAINER_ROOT);
 
-  mkdir(dst, 0755);
+  // Create basic directory structure
+  const char *dirs[] = {CONTAINER_ROOT,         CONTAINER_ROOT "/bin",
+                        CONTAINER_ROOT "/proc", CONTAINER_ROOT "/sys",
+                        CONTAINER_ROOT "/dev",  NULL};
 
-  struct dirent *entry;
-  char src_path[PATH_MAX];
-  char dst_path[PATH_MAX];
+  // Clean up any existing container root
+  char cmd[PATH_MAX];
+  snprintf(cmd, sizeof(cmd), "rm -rf %s", CONTAINER_ROOT);
+  system(cmd);
 
-  while ((entry = readdir(dir)) != NULL) {
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-      continue;
-
-    snprintf(src_path, sizeof(src_path), "%s/%s", src, entry->d_name);
-    snprintf(dst_path, sizeof(dst_path), "%s/%s", dst, entry->d_name);
-
-    struct stat statbuf;
-    if (lstat(src_path, &statbuf) == -1) continue;
-
-    if (S_ISDIR(statbuf.st_mode)) {
-      copy_directory(src_path, dst_path);
-    } else if (S_ISREG(statbuf.st_mode)) {
-      FILE *src_file = fopen(src_path, "rb");
-      if (!src_file) continue;
-
-      FILE *dst_file = fopen(dst_path, "wb");
-      if (!dst_file) {
-        fclose(src_file);
-        continue;
-      }
-
-      char buffer[8192];
-      size_t size;
-      while ((size = fread(buffer, 1, sizeof(buffer), src_file)) > 0) {
-        fwrite(buffer, 1, size, dst_file);
-      }
-
-      fclose(src_file);
-      fclose(dst_file);
-      chmod(dst_path, statbuf.st_mode & 0777);
-    } else if (S_ISLNK(statbuf.st_mode)) {
-      char link_target[PATH_MAX];
-      ssize_t len = readlink(src_path, link_target, sizeof(link_target) - 1);
-      if (len != -1) {
-        link_target[len] = '\0';
-        symlink(link_target, dst_path);
-      }
-    }
-  }
-  closedir(dir);
-}
-
-void setup_filesystem(void) {
-  // Make the mount namespace private
-  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1) {
-    handle_error("mount private");
-  }
-
-  // Core directories to copy from host
-  const char *base_dirs[] = {"bin", "etc", "lib", "usr", "sbin", NULL};
-
-  printf("Setting up container root filesystem...\n");
-  struct stat st;
-
-  // Copy core directories from host
-  for (const char **dir = base_dirs; *dir != NULL; dir++) {
-    char src_path[PATH_MAX];
-    char dst_path[PATH_MAX];
-    snprintf(src_path, sizeof(src_path), "/%s", *dir);
-    snprintf(dst_path, sizeof(dst_path), "%s/%s", CONTAINER_ROOT, *dir);
-
-    if (stat(src_path, &st) == 0) {
-      printf("  %s exists\n", src_path);
-    } else {
-      printf("  %s does not exist: %s\n", src_path, strerror(errno));
-    }
-
-    copy_directory(src_path, dst_path);
-
-    if (stat(dst_path, &st) == 0) {
-      printf("  Created %s\n", dst_path);
-    } else {
-      printf("  Failed to create %s: %s\n", dst_path, strerror(errno));
-    }
-  }
-
-  // Create special directories
-  const char *dirs[] = {CONTAINER_ROOT "/proc", CONTAINER_ROOT "/sys",
-                        CONTAINER_ROOT "/dev", CONTAINER_ROOT "/tmp", NULL};
-
+  // Create directories
   for (const char **dir = dirs; *dir != NULL; dir++) {
+    printf("Creating directory %s\n", *dir);
     if (mkdir(*dir, 0755) && errno != EEXIST) {
+      printf("Failed to create %s: %s\n", *dir, strerror(errno));
       handle_error("mkdir");
     }
   }
 
-  // Mount special filesystems
-  if (mount("proc", CONTAINER_ROOT "/proc", "proc", 0, NULL) == -1) {
-    handle_error("mount proc");
+  snprintf(cmd, sizeof(cmd),
+           "cp /bin/busybox %s/bin/busybox && chmod +x %s/bin/busybox",
+           CONTAINER_ROOT, CONTAINER_ROOT);
+  if (system(cmd) != 0) {
+    fprintf(stderr, "Failed to setup busybox!\n");
+    exit(1);
   }
-  if (mount("sysfs", CONTAINER_ROOT "/sys", "sysfs", 0, NULL) == -1) {
-    handle_error("mount sysfs");
+
+  // Create essential command symlinks
+  printf("Creating symlinks...\n");
+  const char *commands[] = {"sh",    "ls",   "ps",  "mount", "umount",
+                            "mkdir", "echo", "cat", "pwd",   NULL};
+
+  // Change to the bin directory for creating symlinks
+  char old_pwd[PATH_MAX];
+  getcwd(old_pwd, sizeof(old_pwd));
+
+  char bin_path[PATH_MAX];
+  snprintf(bin_path, sizeof(bin_path), "%s/bin", CONTAINER_ROOT);
+  chdir(bin_path);
+
+  for (const char **cmd_ptr = commands; *cmd_ptr != NULL; cmd_ptr++) {
+    if (symlink("busybox", *cmd_ptr) != 0 && errno != EEXIST) {
+      printf("Warning: Failed to create symlink for %s: %s\n", *cmd_ptr,
+             strerror(errno));
+    }
   }
-  if (mount("devtmpfs", CONTAINER_ROOT "/dev", "devtmpfs", 0, NULL) == -1) {
-    handle_error("mount devtmpfs");
+
+  chdir(old_pwd);
+
+  // Mount essential filesystems
+  const struct {
+    const char *source;
+    const char *target;
+    const char *type;
+    unsigned long flags;
+  } mounts[] = {{"proc", CONTAINER_ROOT "/proc", "proc", 0},
+                {"sysfs", CONTAINER_ROOT "/sys", "sysfs", 0},
+                {"devtmpfs", CONTAINER_ROOT "/dev", "devtmpfs", 0},
+                {NULL, NULL, NULL, 0}};
+
+  for (int i = 0; mounts[i].source != NULL; i++) {
+    printf("Mounting %s at %s\n", mounts[i].source, mounts[i].target);
+    if (mount(mounts[i].source, mounts[i].target, mounts[i].type,
+              mounts[i].flags, NULL) == -1) {
+      printf("Warning: Could not mount %s: %s\n", mounts[i].target,
+             strerror(errno));
+    }
+  }
+
+  // Print busybox info
+  printf("\nBusybox binary information:\n");
+  snprintf(cmd, sizeof(cmd), "file %s/bin/busybox", CONTAINER_ROOT);
+  system(cmd);
+}
+
+void cleanup_container_root(void) {
+  printf("Cleaning up container root...\n");
+
+  // Unmount special filesystems in reverse order
+  const char *mounts[] = {CONTAINER_ROOT "/dev", CONTAINER_ROOT "/sys",
+                          CONTAINER_ROOT "/proc", NULL};
+
+  for (const char **mount_point = mounts; *mount_point != NULL; mount_point++) {
+    printf("Unmounting %s...\n", *mount_point);
+    if (umount2(*mount_point, MNT_DETACH) != 0) {
+      printf("Warning: Failed to unmount %s: %s\n", *mount_point,
+             strerror(errno));
+    }
+  }
+
+  // Remove entire container root with all contents
+  char cmd[PATH_MAX];
+  snprintf(cmd, sizeof(cmd), "rm -rf %s", CONTAINER_ROOT);
+  printf("Removing container root directory...\n");
+  if (system(cmd) != 0) {
+    printf("Warning: Failed to remove container root: %s\n", strerror(errno));
   }
 }
 
-void cleanup_filesystem(void) {
-  // Unmount special filesystems
-  umount(CONTAINER_ROOT "/dev");
-  umount(CONTAINER_ROOT "/sys");
-  umount(CONTAINER_ROOT "/proc");
-
-  // Remove directories
-  rmdir(CONTAINER_ROOT "/dev");
-  rmdir(CONTAINER_ROOT "/sys");
-  rmdir(CONTAINER_ROOT "/proc");
-  rmdir(CONTAINER_ROOT "/tmp");
-  rmdir(CONTAINER_ROOT);
-}
-
+// Function that runs inside the container
 int child_function(void *arg) {
   struct child_args *args = (struct child_args *)arg;
 
-  printf("Setting up container root filesystem...\n");
-  setup_filesystem();
+  printf("Setting up container root...\n");
+  setup_container_root();
 
   printf("Changing root...\n");
   if (chroot(CONTAINER_ROOT) == -1) {
@@ -181,9 +157,10 @@ int child_function(void *arg) {
     handle_error("chdir");
   }
 
-  // Execute the command
   char **argv = args->argv;
+  printf("Attempting to execute: %s\n", argv[3]);
   if (execvp(argv[3], &argv[3]) == -1) {
+    printf("execvp failed: %s\n", strerror(errno));
     handle_error("execvp");
   }
 
@@ -202,11 +179,6 @@ int main(int argc, char *argv[]) {
   if (strcmp(argv[1], "run") != 0) {
     fprintf(stderr, "Unknown command: %s\n", argv[1]);
     exit(1);
-  }
-
-  // Create container root directory
-  if (mkdir(CONTAINER_ROOT, 0755) && errno != EEXIST) {
-    handle_error("mkdir");
   }
 
   // Setup child arguments
@@ -236,7 +208,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Cleanup
-  cleanup_filesystem();
+  cleanup_container_root();
   free(stack);
 
   // Report exit status

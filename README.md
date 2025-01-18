@@ -12,7 +12,9 @@ Features:
 
 - **Error Handling:** The project includes robust error handling to manage failures in memory allocation, network interface creation, and process cloning.
 
-### Environment setup
+## Environment setup
+
+### Option 1: Uisng a VM
 
 Run the executable on a VM.
 
@@ -25,10 +27,9 @@ sudo apt-get install -y \
     libcurl4-openssl-dev \
     iproute2 \
     net-tools \
-    linux-headers-$(uname -r)
+    linux-headers-$(uname -r) \
+    busybox-static
 ```
-
-### Building and running
 
 ```shell
 # Clone project
@@ -38,6 +39,40 @@ cd mocker
 # Compile with full debugging symbols
 gcc -g -o container-runtime app/*.c -lcurl
 
-# Run with full system access
-sudo ./container-runtime run alpine:latest /bin/ping -c 4 8.8.8.8
+# Run a basic test (as root/sudo)
+sudo ./container-runtime run ubuntu:latest /bin/ls /
+
+# Try running a command
+sudo ./container-runtime run ubuntu:latest /bin/echo "Hello from container"
+
+# Run with full system access (doesn't work yet)
+sudo ./container-runtime run ubuntu:latest /bin/ping -c 4 8.8.8.8
+```
+
+### Option 2: Uinsg Docker
+
+We use linux-specific syscalls, so we'll run the code in a Docker container.
+
+Must have [Docker installed](https://docs.docker.com/get-docker/) and running.
+Next, add a shell alias (i.e. `nano ~/.zshrc`).
+
+```shell
+alias mydocker='docker build --platform linux/arm64 -t mydocker . && docker run --platform linux/arm64 --privileged --cap-add="ALL" --device=/dev/net/tun --network=host mydocker'
+```
+
+You can now test the program like this:
+
+```shell
+mydocker run ubuntu:latest /bin/ls /
+mydocker run ubuntu:latest /bin/ps
+mydocker run ubuntu:latest /bin/echo "Hello from container"
+
+# not implemented:
+mydocker run ubuntu:latest /bin/ping -c 4 8.8.8.8
+```
+
+Cleanup.
+
+```shell
+docker rmi mydocker -f
 ```
