@@ -6,11 +6,11 @@ This project implements a basic container runtime in C that demonstrates core co
 
 ## Features
 
-- **Process Isolation**: Uses Linux namespaces (PID, Mount, UTS, IPC) to isolate processes
-- **Filesystem Isolation**: Creates an isolated filesystem using chroot
-- **Mount Namespace**: Sets up essential filesystem mounts (proc, sys, dev)
-- **Minimal Root Filesystem**: Uses busybox to provide basic Unix utilities
-- **Cleanup**: Properly unmounts filesystems and cleans up resources
+- **Process Isolation**: Makes use of Linux namespaces (PID, Mount, UTS, IPC) to isolate processes using [clone](https://man7.org/linux/man-pages/man2/clone.2.html) and the appropriate flags when creating the child process.
+- **Filesystem Isolation**: Creates an isolated filesystem environment by creating necessary directories, copying the [BusyBox](https://www.busybox.net/downloads/BusyBox.html) binary, and mapping symlinks to busybox utilities. It then uses [chroot](https://man7.org/linux/man-pages/man2/chroot.2.html) change the root filesystem, ensuring the child process operates within its own filesystem.
+- **Mount Namespace**: Configures essential filesystem mounts, including `proc`, `sys`, and `tmpfs`, within the container's root filesystem. This is done using the [mount](https://man7.org/linux/man-pages/man2/mount.2.html) system call to ensure the container has access to necessary system information and temporary storage.
+- **Minimal Root Filesystem**: Uses busyBox to provide a minimal set of Unix utilities within the container. This involves copying the BusyBox binary to the container's `bin` directory and creating symbolic links for various utilities.
+- **Cleanup**: Ensures proper unmounting of filesystems and cleanup of resources to maintain system integrity using [umount2](https://man7.org/linux/man-pages/man2/umount.2.html). This involves unmounting the `proc`, `sys`, and `tmpfs` filesystems and removing any temporary directories created during the setup.
 
 ## Requirements
 
