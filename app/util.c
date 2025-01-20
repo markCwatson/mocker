@@ -1,5 +1,4 @@
 #include "util.h"
-
 #include "common.h"
 
 void disable_buffering(void)

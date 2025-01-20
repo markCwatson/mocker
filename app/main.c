@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-// #include "networking.h"
+#include "networking.h"
 #include "file_system.h"
 #include "child_process.h"
 #include "logging.h"
@@ -45,10 +45,10 @@ int main(int argc, char *argv[])
     handle_error("clone");
   }
 
-  // if (setup_networking(pid) != 0)
-  // {
-  //   LOG("Warning: Failed to setup networking\n");
-  // }
+  if (setup_networking(pid) != 0)
+  {
+    LOG("Warning: Failed to setup networking\n");
+  }
 
   // Wait for child to finish
   int status;
@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
   }
 
   // Cleanup
-  // cleanup_networking();
+  cleanup_networking();
   cleanup_container_root();
   free(stack);
 
