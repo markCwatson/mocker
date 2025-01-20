@@ -2,7 +2,7 @@
 
 This project implements a basic container runtime in C that demonstrates core container concepts like process isolation, filesystem isolation, and mount namespaces.
 
-![alt-text][1]
+[![Mocker demo](public/youtube.png)](https://www.youtube.com/watch?v=MNBXOb73fxs 'mocker demo')
 
 ## Features
 
@@ -41,6 +41,8 @@ gcc -g -o mocker -Iapp src/*.c -lcurl
 ## Usages
 
 ### Option 1: Linux VM
+
+![alt-text][1]
 
 You can run `mocker` inside a VM running Linux (tested with Kali) and execute a limited set of commands inside the _mocker_ container.
 
@@ -129,4 +131,4 @@ This is a educational implementation and lacks many security features of product
 
 This project is provided as-is for educational purposes.
 
-[1]: gif/mocker-demo.gif 'Demo of mocker container running'
+[1]: public/mocker-demo.gif 'Demo of mocker container running'
