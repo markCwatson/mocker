@@ -11,6 +11,13 @@ This project implements a basic container runtime in C that demonstrates core co
 - **Mount Namespace**: Configures essential filesystem mounts, including `proc`, `sys`, and `tmpfs`, within the container's root filesystem. This is done using the [mount](https://man7.org/linux/man-pages/man2/mount.2.html) system call to ensure the container has access to necessary system information and temporary storage.
 - **Minimal Root Filesystem**: Uses busyBox to provide a minimal set of Unix utilities within the container. This involves copying the BusyBox binary to the container's `bin` directory and creating symbolic links for various utilities.
 - **Cleanup**: Ensures proper unmounting of filesystems and cleanup of resources to maintain system integrity using [umount2](https://man7.org/linux/man-pages/man2/umount.2.html). This involves unmounting the `proc`, `sys`, and `tmpfs` filesystems and removing any temporary directories created during the setup.
+- **Networking**: Rather than using libnl ([netlink library](https://www.infradead.org/~tgr/libnl/)) to configure the network interfaces (which would be unecessarily complex for this project), networking is implemented using Linux network namespaces (`CLONE_NEWNET`) and standard system utilities. Credit to Ivan Velichko and his great tutorials on the [iximiuz labs](https://labs.iximiuz.com/tutorials/container-networking-from-scratch) for helping me understand container networking and the necessary Linux utilities. Features include:
+  - Network namespace isolation using the `clone()` system call
+  - Virtual ethernet (veth) pair creation for container-host communication
+  - IP address configuration for both container and host interfaces
+  - NAT setup using iptables for internet connectivity
+  - DNS resolution through host DNS configuration
+  - Automatic cleanup of network resources on container exit
 
 ## Requirements
 
@@ -60,8 +67,15 @@ sudo ./mocker run ubuntu:latest /bin/echo "Hello from container"
 # Check processes
 sudo ./mocker run ubuntu:latest /bin/ps
 
-# Not implemented:
-sudo ./mocker run ubuntu:latest /bin/ping -c 4 8.8.8.8
+# Test networking
+sudo ./mocker run ubuntu:latest /bin/sh
+ip link ls                  # should show lo and ceth0
+ping -c 3 google.com        # should ping google (proves internet connectivity and DNS config)
+ip route show               # should show default route
+# and from the host machine (in another terminal)
+sudo iptables -t nat -L POSTROUTING -n # should show MASQUERADE rule
+# exit container and verify cleanup
+ip link ls | grep veth0     # should show nothing (successfully cleaned up when container stops)
 ```
 
 ### Option 2: Using Docker (wip)
@@ -81,9 +95,6 @@ You can now test the program like this:
 mocker run ubuntu:latest /bin/ls /
 mocker run ubuntu:latest /bin/ps
 mocker run ubuntu:latest /bin/echo "Hello from container"
-
-# not implemented:
-mocker run ubuntu:latest /bin/ping -c 4 8.8.8.8
 ```
 
 Cleanup.
@@ -95,7 +106,6 @@ docker rmi mocker -f
 ## Current Limitations
 
 - No image handling (uses local busybox only)
-- No network namespace isolation
 - No resource limits (cgroups not implemented)
 - No user namespace isolation
 - Minimal command set through busybox
@@ -106,7 +116,6 @@ docker rmi mocker -f
 Possible enhancements:
 
 - Add container image support
-- Implement network isolation
 - Add cgroups for resource control
 - Add user namespace support
 - Support for persistent volumes

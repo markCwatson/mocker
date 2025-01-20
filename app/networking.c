@@ -7,6 +7,72 @@
 #define HOST_IP "172.18.0.1"
 #define CONTAINER_IP "172.18.0.2"
 #define NETMASK "16"
+#define CONTAINER_NETWORK "172.18.0.0/16"
+
+int setup_dns(pid_t child_pid)
+{
+    char cmd[256];
+
+    // Copy host's resolv.conf to container
+    snprintf(cmd, sizeof(cmd),
+             "mkdir -p %s/etc && cp /etc/resolv.conf %s/etc/resolv.conf",
+             CONTAINER_ROOT, CONTAINER_ROOT);
+    if (system(cmd) != 0)
+    {
+        LOG("Failed to setup DNS configuration\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+int enable_ip_forwarding(void)
+{
+    const char *forwarding_file = "/proc/sys/net/ipv4/ip_forward";
+    FILE *fp = fopen(forwarding_file, "w");
+    if (!fp)
+    {
+        LOG("Failed to open %s\n", forwarding_file);
+        return -1;
+    }
+
+    fprintf(fp, "1");
+    fclose(fp);
+
+    return 0;
+}
+
+int setup_nat_rules(void)
+{
+    char cmd[256];
+
+    // Clear any existing NAT rules for our network
+    snprintf(cmd, sizeof(cmd),
+             "iptables -t nat -D POSTROUTING -s %s ! -o %s -j MASQUERADE 2>/dev/null",
+             CONTAINER_NETWORK, VETH_HOST);
+    system(cmd);
+
+    // Add NAT rule
+    snprintf(cmd, sizeof(cmd),
+             "iptables -t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE",
+             CONTAINER_NETWORK, VETH_HOST);
+    if (system(cmd) != 0)
+    {
+        LOG("Failed to set up NAT rules\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+void cleanup_nat_rules(void)
+{
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),
+             "iptables -t nat -D POSTROUTING -s %s ! -o %s -j MASQUERADE 2>/dev/null",
+             CONTAINER_NETWORK, VETH_HOST);
+    system(cmd);
+}
 
 void cleanup_networking(void)
 {
@@ -25,7 +91,13 @@ int setup_networking(pid_t child_pid)
 
     LOG("Setting up container networking...\n");
 
-    // Create veth pair
+    if (setup_dns(child_pid) != 0)
+    {
+        LOG("Failed to setup DNS\n");
+        goto cleanup;
+    }
+
+    // create veth pair
     snprintf(cmd, sizeof(cmd),
              "ip link add %s type veth peer name %s",
              VETH_HOST, VETH_CONTAINER);
@@ -35,7 +107,7 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    // Move container end to child's network namespace
+    // move container end to child's network namespace
     snprintf(cmd, sizeof(cmd),
              "ip link set %s netns %d",
              VETH_CONTAINER, child_pid);
@@ -45,7 +117,7 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    // Setup host end
+    // setup host end
     snprintf(cmd, sizeof(cmd), "ip link set %s up", VETH_HOST);
     if (system(cmd) != 0)
     {
@@ -62,7 +134,7 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    // Setup container end
+    // setup container end
     snprintf(cmd, sizeof(cmd),
              "nsenter -t %d -n ip link set lo up", child_pid);
     if (system(cmd) != 0)
@@ -98,11 +170,24 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    LOG("Network setup completed successfully\n");
+    if (enable_ip_forwarding() != 0)
+    {
+        LOG("Failed to enable IP forwarding\n");
+        goto cleanup;
+    }
+
+    if (setup_nat_rules() != 0)
+    {
+        LOG("Failed to setup NAT\n");
+        goto cleanup;
+    }
+
+    LOG("Network setup completed successfully with NAT\n");
     return 0;
 
 cleanup:
     LOG("Network setup failed, cleaning up...\n");
     cleanup_networking();
-    return ret;
+    cleanup_nat_rules();
+    return -1;
 }
