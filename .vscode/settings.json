@@ -4,6 +4,7 @@
     "signal.h": "c",
     "cstdlib": "cpp",
     "stdio.h": "c",
-    "fcntl.h": "c"
+    "fcntl.h": "c",
+    "util.h": "c"
   }
 }

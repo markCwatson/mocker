@@ -1,9 +1,9 @@
 #define _GNU_SOURCE
-#include "networking.h"
-#include "file_system.h"
 #include "child_process.h"
-#include "logging.h"
 #include "common.h"
+#include "file_system.h"
+#include "logging.h"
+#include "networking.h"
 #include "util.h"
 
 #define STACK_SIZE (1024 * 1024)
@@ -35,7 +35,8 @@ int main(int argc, char *argv[])
   }
 
   // Define namespaces for isolation
-  int clone_flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET;
+  int clone_flags =
+      CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET;
 
   // Create new process with namespaces
   pid_t pid =
