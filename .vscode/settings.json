@@ -1,6 +1,9 @@
 {
   "files.associations": {
     "*.mdx": "markdown",
-    "signal.h": "c"
+    "signal.h": "c",
+    "cstdlib": "cpp",
+    "stdio.h": "c",
+    "fcntl.h": "c"
   }
 }

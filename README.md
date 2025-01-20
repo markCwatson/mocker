@@ -28,7 +28,7 @@ sudo apt-get update
 sudo apt-get install -y build-essential gcc busybox-static
 
 # Compile with full debugging symbols (use -DENABLE_LOGGING to enable logging)
-gcc -g -o mocker app/*.c -lcurl
+gcc -g -o mocker -Iapp app/*.c -lcurl
 ```
 
 ## Usages
