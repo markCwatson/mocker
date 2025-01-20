@@ -1,6 +1,6 @@
 # _mocker_: a minimal container runtime in C
 
-This project implements a basic container runtime in C that demonstrates core container concepts like process isolation, filesystem isolation, and mount namespaces.
+This project implements a basic container runtime in C that demonstrates core container concepts like process isolation, networking and filesystem isolation, and mount namespaces.
 
 [![Mocker demo](public/youtube.png)](https://www.youtube.com/watch?v=MNBXOb73fxs 'mocker demo')
 
