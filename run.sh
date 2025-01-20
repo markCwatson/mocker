@@ -2,5 +2,5 @@
 
 set -e
 tmpFile=$(mktemp)
-gcc -lcurl app/*.c -o $tmpFile
+gcc -lcurl src/*.c -o $tmpFile
 exec "$tmpFile" "$@"
