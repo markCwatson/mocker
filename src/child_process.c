@@ -11,7 +11,7 @@ int child_function(void *arg)
     LOG("Setting hostname...\n");
     sethostname("mocker", 6);
 
-    LOG("Setting up mocker root...\n");
+    LOG("Setting up container root...\n");
     setup_container_root();
 
     LOG("Changing root...\n");

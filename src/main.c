@@ -46,9 +46,15 @@ int main(int argc, char *argv[])
     handle_error("clone");
   }
 
+  // Now setup networking
+  LOG("[MAIN] Setting up networking...\n");
   if (setup_networking(pid) != 0)
   {
-    LOG("Warning: Failed to setup networking\n");
+    LOG("[MAIN] Warning: Failed to setup networking\n");
+  }
+  else
+  {
+    LOG("[MAIN] Network setup complete\n");
   }
 
   // Wait for child to finish
