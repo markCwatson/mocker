@@ -16,9 +16,14 @@ void setup_container_root(void)
     LOG("Creating minimal mocker root at %s\n", CONTAINER_ROOT);
 
     // Create basic directory structure
-    const char *dirs[] = {CONTAINER_ROOT, CONTAINER_ROOT "/bin",
-                          CONTAINER_ROOT "/proc", CONTAINER_ROOT "/sys",
-                          CONTAINER_ROOT "/dev", NULL};
+    const char *dirs[] = {
+        CONTAINER_ROOT,
+        CONTAINER_ROOT "/bin",
+        CONTAINER_ROOT "/proc",
+        CONTAINER_ROOT "/sys",
+        CONTAINER_ROOT "/dev",
+        NULL,
+    };
 
     // Clean up any existing mocker root
     char cmd[PATH_MAX];
@@ -47,8 +52,7 @@ void setup_container_root(void)
 
     // Create essential command symlinks
     LOG("Creating symlinks...\n");
-    const char *commands[] = {"sh", "ls", "ps", "mount", "umount",
-                              "mkdir", "echo", "cat", "pwd", NULL};
+    const char *commands[] = {"sh", "ls", "ps", "mount", "umount", "mkdir", "echo", "cat", "pwd", NULL};
 
     // Change to the bin directory for creating symlinks
     char old_pwd[PATH_MAX];
@@ -76,10 +80,12 @@ void setup_container_root(void)
         const char *target;
         const char *type;
         unsigned long flags;
-    } mounts[] = {{"proc", CONTAINER_ROOT "/proc", "proc", 0},
-                  {"sysfs", CONTAINER_ROOT "/sys", "sysfs", 0},
-                  {"devtmpfs", CONTAINER_ROOT "/dev", "devtmpfs", 0},
-                  {NULL, NULL, NULL, 0}};
+    } mounts[] = {
+        {"proc", CONTAINER_ROOT "/proc", "proc", 0},
+        {"sysfs", CONTAINER_ROOT "/sys", "sysfs", 0},
+        {"devtmpfs", CONTAINER_ROOT "/dev", "devtmpfs", 0},
+        {NULL, NULL, NULL, 0},
+    };
 
     for (int i = 0; mounts[i].source != NULL; i++)
     {
@@ -103,8 +109,12 @@ void cleanup_container_root(void)
     LOG("Cleaning up mocker root...\n");
 
     // Unmount special filesystems in reverse order
-    const char *mounts[] = {CONTAINER_ROOT "/dev", CONTAINER_ROOT "/sys",
-                            CONTAINER_ROOT "/proc", NULL};
+    const char *mounts[] = {
+        CONTAINER_ROOT "/dev",
+        CONTAINER_ROOT "/sys",
+        CONTAINER_ROOT "/proc",
+        NULL,
+    };
 
     for (const char **mount_point = mounts; *mount_point != NULL; mount_point++)
     {

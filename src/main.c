@@ -25,7 +25,9 @@ int main(int argc, char *argv[])
   }
 
   // Setup child arguments
-  struct child_args args = {.argv = argv};
+  struct child_args args = {
+      .argv = argv,
+  };
 
   // Allocate stack for child
   char *stack = malloc(STACK_SIZE);
@@ -35,12 +37,10 @@ int main(int argc, char *argv[])
   }
 
   // Define namespaces for isolation
-  int clone_flags =
-      CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET;
+  int clone_flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET;
 
   // Create new process with namespaces
-  pid_t pid =
-      clone(child_function, stack + STACK_SIZE, clone_flags | SIGCHLD, &args);
+  pid_t pid = clone(child_function, stack + STACK_SIZE, clone_flags | SIGCHLD, &args);
   if (pid == -1)
   {
     handle_error("clone");

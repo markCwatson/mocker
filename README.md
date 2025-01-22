@@ -19,6 +19,16 @@ This project implements a basic container runtime in C that demonstrates core co
   - DNS resolution through host DNS configuration
   - Automatic cleanup of network resources on container exit
 
+## A note on networking:
+
+I am in the progress of replacing the networking setup from the use of linux utilities + `system()` to [netlink sockets in linux](https://man7.org/linux/man-pages/man7/netlink.7.html). The roadmap is as follows:
+
+1. Creating veth pairs
+2. Moving interfaces to namespaces
+3. Setting interface state (up/down)
+4. Configuring IP addresses
+5. Setting up routing
+
 ## Requirements
 
 - Linux system with namespace support
