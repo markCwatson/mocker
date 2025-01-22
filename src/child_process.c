@@ -8,6 +8,9 @@ int child_function(void *arg)
 {
     struct child_args *args = (struct child_args *)arg;
 
+    LOG("Setting hostname...\n");
+    sethostname("mocker", 6);
+
     LOG("Setting up mocker root...\n");
     setup_container_root();
 
