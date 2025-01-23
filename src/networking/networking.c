@@ -19,7 +19,7 @@ int setup_dns(pid_t child_pid)
              CONTAINER_ROOT, CONTAINER_ROOT);
     if (system(cmd) != 0)
     {
-        LOG("Failed to setup DNS configuration\n");
+        LOG("[NET] Failed to setup DNS configuration\n");
         return -1;
     }
 
@@ -32,7 +32,7 @@ int enable_ip_forwarding(void)
     FILE *fp = fopen(forwarding_file, "w");
     if (!fp)
     {
-        LOG("Failed to open %s\n", forwarding_file);
+        LOG("[NET] Failed to open %s\n", forwarding_file);
         return -1;
     }
 
@@ -58,7 +58,7 @@ int setup_nat_rules(void)
              CONTAINER_NETWORK, VETH_HOST);
     if (system(cmd) != 0)
     {
-        LOG("Failed to set up NAT rules\n");
+        LOG("[NET] Failed to set up NAT rules\n");
         return -1;
     }
 
@@ -77,7 +77,7 @@ void cleanup_nat_rules(void)
 void cleanup_networking(void)
 {
     char cmd[256];
-    LOG("Cleaning up network interfaces...\n");
+    LOG("[NET] Cleaning up network interfaces...\n");
 
     // Delete veth pair (deleting one end automatically removes the peer)
     snprintf(cmd, sizeof(cmd), "ip link delete %s 2>/dev/null", VETH_HOST);
@@ -88,11 +88,11 @@ int setup_networking(pid_t child_pid)
 {
     char cmd[256];
 
-    LOG("Setting up container networking...\n");
+    LOG("[NET] Setting up container networking...\n");
 
     if (setup_dns(child_pid) != 0)
     {
-        LOG("Failed to setup DNS\n");
+        LOG("[NET] Failed to setup DNS\n");
         goto cleanup;
     }
 
@@ -100,7 +100,7 @@ int setup_networking(pid_t child_pid)
     // i.e. ip link add VETH_HOST type veth peer name VETH_CONTAINER
     if (create_veth_pair(VETH_HOST, VETH_CONTAINER) != 0)
     {
-        LOG("Failed to create veth pair\n");
+        LOG("[NET] Failed to create veth pair\n");
         goto cleanup;
     }
 
@@ -110,7 +110,7 @@ int setup_networking(pid_t child_pid)
              VETH_CONTAINER, child_pid);
     if (system(cmd) != 0)
     {
-        LOG("Failed to move interface to container namespace\n");
+        LOG("[NET] Failed to move interface to container namespace\n");
         goto cleanup;
     }
 
@@ -118,7 +118,7 @@ int setup_networking(pid_t child_pid)
     snprintf(cmd, sizeof(cmd), "ip link set %s up", VETH_HOST);
     if (system(cmd) != 0)
     {
-        LOG("Failed to set host interface up\n");
+        LOG("[NET] Failed to set host interface up\n");
         goto cleanup;
     }
 
@@ -127,7 +127,7 @@ int setup_networking(pid_t child_pid)
              HOST_IP, NETMASK, VETH_HOST);
     if (system(cmd) != 0)
     {
-        LOG("Failed to set host IP\n");
+        LOG("[NET] Failed to set host IP\n");
         goto cleanup;
     }
 
@@ -136,7 +136,7 @@ int setup_networking(pid_t child_pid)
              "nsenter -t %d -n ip link set lo up", child_pid);
     if (system(cmd) != 0)
     {
-        LOG("Failed to set container loopback up\n");
+        LOG("[NET] Failed to set container loopback up\n");
         goto cleanup;
     }
 
@@ -145,7 +145,7 @@ int setup_networking(pid_t child_pid)
              child_pid, VETH_CONTAINER);
     if (system(cmd) != 0)
     {
-        LOG("Failed to set container interface up\n");
+        LOG("[NET] Failed to set container interface up\n");
         goto cleanup;
     }
 
@@ -154,7 +154,7 @@ int setup_networking(pid_t child_pid)
              child_pid, CONTAINER_IP, NETMASK, VETH_CONTAINER);
     if (system(cmd) != 0)
     {
-        LOG("Failed to set container IP\n");
+        LOG("[NET] Failed to set container IP\n");
         goto cleanup;
     }
 
@@ -163,27 +163,27 @@ int setup_networking(pid_t child_pid)
              child_pid, HOST_IP);
     if (system(cmd) != 0)
     {
-        LOG("Failed to set container default route\n");
+        LOG("[NET] Failed to set container default route\n");
         goto cleanup;
     }
 
     if (enable_ip_forwarding() != 0)
     {
-        LOG("Failed to enable IP forwarding\n");
+        LOG("[NET] Failed to enable IP forwarding\n");
         goto cleanup;
     }
 
     if (setup_nat_rules() != 0)
     {
-        LOG("Failed to setup NAT\n");
+        LOG("[NET] Failed to setup NAT\n");
         goto cleanup;
     }
 
-    LOG("Network setup completed successfully with NAT\n");
+    LOG("[NET] Network setup completed successfully with NAT\n");
     return 0;
 
 cleanup:
-    LOG("Network setup failed, cleaning up...\n");
+    LOG("[NET] Network setup failed, cleaning up...\n");
     cleanup_networking();
     cleanup_nat_rules();
     return -1;
