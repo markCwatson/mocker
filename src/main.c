@@ -3,7 +3,7 @@
 #include "common.h"
 #include "file_system.h"
 #include "logging.h"
-#include "networking.h"
+#include "networking/networking.h"
 #include "util.h"
 
 #define STACK_SIZE (1024 * 1024)
@@ -45,6 +45,9 @@ int main(int argc, char *argv[])
   {
     handle_error("clone");
   }
+
+  // let filesystem setup complete so we can copy /etc/resolv.conf
+  usleep(50000);
 
   // Now setup networking
   LOG("[MAIN] Setting up networking...\n");

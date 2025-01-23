@@ -5,6 +5,7 @@
     "cstdlib": "cpp",
     "stdio.h": "c",
     "fcntl.h": "c",
-    "util.h": "c"
+    "util.h": "c",
+    "networking.h": "c"
   }
 }

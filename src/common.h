@@ -19,12 +19,8 @@
 #include <sched.h>
 #include <signal.h>
 #include <unistd.h>
+#include <time.h>
 
 #define CONTAINER_ROOT "/tmp/mocker"
-
-struct child_args
-{
-    char **argv;
-};
 
 #endif

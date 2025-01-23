@@ -21,9 +21,9 @@ This project implements a basic container runtime in C that demonstrates core co
 
 ## A note on networking:
 
-I am in the progress of replacing the networking setup from the use of linux utilities + `system()` to [netlink sockets in linux](https://man7.org/linux/man-pages/man7/netlink.7.html). The roadmap is as follows:
+I am in the progress of replacing the networking setup from the use of linux utilities + `system()` to [netlink sockets in linux](https://man7.org/linux/man-pages/man7/netlink.7.html) using [libmnl](https://www.netfilter.org/projects/libmnl/doxygen/html/). The roadmap is as follows:
 
-1. Creating veth pairs
+1. Creating veth pairs :white_check_mark:
 2. Moving interfaces to namespaces
 3. Setting interface state (up/down)
 4. Configuring IP addresses
@@ -42,10 +42,13 @@ I am in the progress of replacing the networking setup from the use of linux uti
 ```shell
 # Install required packages (on Debian/Ubuntu)
 sudo apt-get update
-sudo apt-get install -y build-essential gcc busybox-static
+sudo apt-get install -y build-essential gcc make libmnl-dev busybox-static
 
-# Compile with full debugging symbols (use -DENABLE_LOGGING to enable logging)
-gcc -g -o mocker -Iapp src/*.c -lcurl
+# Use make to compile/buld
+make
+
+# use make to run (will open shell in container)
+make run
 ```
 
 ## Usages

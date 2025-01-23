@@ -1,6 +1,6 @@
 #include "networking.h"
-#include "common.h"
-#include "logging.h"
+#include "../logging.h"
+#include "libmnl.h"
 
 #define VETH_HOST "veth0"
 #define VETH_CONTAINER "ceth0"
@@ -87,7 +87,6 @@ void cleanup_networking(void)
 int setup_networking(pid_t child_pid)
 {
     char cmd[256];
-    int ret = -1;
 
     LOG("Setting up container networking...\n");
 
@@ -98,10 +97,8 @@ int setup_networking(pid_t child_pid)
     }
 
     // create veth pair
-    snprintf(cmd, sizeof(cmd),
-             "ip link add %s type veth peer name %s",
-             VETH_HOST, VETH_CONTAINER);
-    if (system(cmd) != 0)
+    // i.e. ip link add VETH_HOST type veth peer name VETH_CONTAINER
+    if (create_veth_pair(VETH_HOST, VETH_CONTAINER) != 0)
     {
         LOG("Failed to create veth pair\n");
         goto cleanup;
