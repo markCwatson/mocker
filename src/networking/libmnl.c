@@ -46,47 +46,25 @@ static int netlink_response_cb(const struct nlmsghdr *nlh, void *data)
     return MNL_CB_OK;
 }
 
-int create_veth_pair(const char *host, const char *cont)
+static void construct_netlink_msg_header(struct nlmsghdr *nlh, uint16_t type, uint16_t flags)
 {
-    struct mnl_socket *nl;
-    char buf[MNL_SOCKET_BUFFER_SIZE];
-    struct nlmsghdr *nlh;
-    struct ifinfomsg *ifi;
-    uint32_t seq;
-    int ret;
-
-    // Open Netlink socket
-    LOG("[LIBMNL] Opening Netlink socket\n");
-    nl = mnl_socket_open(NETLINK_ROUTE);
-    if (!nl)
-    {
-        LOG("[LIBMNL] mnl_socket_open");
-        return EXIT_FAILURE;
-    }
-
-    // Bind to netlink
-    LOG("[LIBMNL] Binding to Netlink\n");
-    if (mnl_socket_bind(nl, 0, MNL_SOCKET_AUTOPID) < 0)
-    {
-        LOG("[LIBMNL] mnl_socket_bind");
-        mnl_socket_close(nl);
-        return EXIT_FAILURE;
-    }
-
-    // Build the Netlink message
-    LOG("[LIBMNL] Building Netlink message\n");
-    nlh = mnl_nlmsg_put_header(buf);
-    nlh->nlmsg_type = RTM_NEWLINK;
-    // We include NLM_F_ACK so the kernel sends us an ACK or error
-    nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL;
+    nlh->nlmsg_type = type;
+    nlh->nlmsg_flags = flags;
     seq = (uint32_t)time(NULL);
     nlh->nlmsg_seq = seq;
+}
 
-    // Outer ifinfomsg for the "veth0" interface
+static void build_netlink_msg(struct mnl_socket *nl, struct ifinfomsg *ifi, struct nlmsghdr *nlh, uint16_t type, uint16_t flags)
+{
+    nlh = mnl_nlmsg_put_header(buf);
+    construct_netlink_msg_header(nlh, type, flags);
+
+    // Outer ifinfomsg for the host interface
+    // Note: u have to invoke mnl_nlmsg_put_header() before you call this function.
     ifi = mnl_nlmsg_put_extra_header(nlh, sizeof(struct ifinfomsg));
     ifi->ifi_family = AF_UNSPEC;
 
-    // IFLA_IFNAME = "veth0"
+    // IFLA_IFNAME = host
     mnl_attr_put_strz(nlh, IFLA_IFNAME, host);
 
     // IFLA_LINKINFO
@@ -96,9 +74,11 @@ int create_veth_pair(const char *host, const char *cont)
         mnl_attr_put_strz(nlh, IFLA_INFO_KIND, "veth");
 
         // IFLA_INFO_DATA
+        LOG("[LIBMNL] Nesting IFLA_INFO_DATA\n");
         struct nlattr *infodata = mnl_attr_nest_start(nlh, IFLA_INFO_DATA);
         {
             // The kernel expects IFLA_VETH_INFO_PEER with a peer ifinfomsg
+            LOG("[LIBMNL] Nesting IFLA_VETH_INFO_PEER\n");
             struct nlattr *peerinfo = mnl_attr_nest_start(nlh, IFLA_VETH_INFO_PEER);
             {
                 struct ifinfomsg peer_ifi = {
@@ -106,6 +86,7 @@ int create_veth_pair(const char *host, const char *cont)
                 };
 
                 // Put the peer ifinfomsg directly into the message
+                LOG("[LIBMNL] Adding peer ifinfomsg\n");
                 size_t sz = NLMSG_ALIGN(sizeof(peer_ifi));
                 memcpy(mnl_nlmsg_get_payload_tail(nlh), &peer_ifi, sizeof(peer_ifi));
                 nlh->nlmsg_len += sz;
@@ -119,18 +100,14 @@ int create_veth_pair(const char *host, const char *cont)
         mnl_attr_nest_end(nlh, infodata);
     }
     mnl_attr_nest_end(nlh, linkinfo);
+}
 
-    // Send the message
-    LOG("[LIBMNL] Sending Netlink message\n");
-    if (mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0)
-    {
-        LOG("[LIBMNL] Error: mnl_socket_sendto");
-        mnl_socket_close(nl);
-        return EXIT_FAILURE;
-    }
+static int receive_netlink_responses(struct mnl_socket *nl)
+{
+    char buf[MNL_SOCKET_BUFFER_SIZE];
+    uint32_t seq;
+    int ret;
 
-    // Receive and parse **all** responses in a loop
-    LOG("[LIBMNL] Receiving Netlink responses\n");
     while (true)
     {
         ret = mnl_socket_recvfrom(nl, buf, sizeof(buf));
@@ -138,17 +115,18 @@ int create_veth_pair(const char *host, const char *cont)
         {
             if (errno == EAGAIN)
             {
-                LOG("[LIBMNL] EAGAIN\n");
+                LOG("[LIBMNL] mnl_socket_recvfrom: errno == EAGAIN\n");
                 break;
             }
-            LOG("[LIBMNL] Error: mnl_socket_recvfrom");
+
+            LOG("[LIBMNL] mnl_socket_recvfrom: errno != EAGAIN\n")
             mnl_socket_close(nl);
             return EXIT_FAILURE;
         }
 
         if (ret == 0)
         {
-            LOG("[LIBMNL] EOF\n");
+            LOG("[LIBMNL] mnl_socket_recvfrom: EOF\n");
             break;
         }
 
@@ -156,9 +134,56 @@ int create_veth_pair(const char *host, const char *cont)
         ret = mnl_cb_run(buf, ret, 0, seq, netlink_response_cb, NULL);
         if (ret <= 0)
         {
-            // MNL_CB_ERROR or MNL_CB_STOP => we stop receiving
+            LOG("[LIBMNL] mnl_cb_run: MNL_CB_ERROR or MNL_CB_STOP\n");
             break;
         }
+    }
+
+    return EXIT_SUCCESS;
+}
+
+int create_veth_pair(const char *host, const char *cont)
+{
+    struct mnl_socket *nl;
+    char buf[MNL_SOCKET_BUFFER_SIZE];
+    struct nlmsghdr *nlh;
+    struct ifinfomsg *ifi;
+
+    // Open Netlink socket
+    LOG("[LIBMNL] Opening Netlink socket\n");
+    nl = mnl_socket_open(NETLINK_ROUTE);
+    if (!nl)
+    {
+        LOG("[LIBMNL] mnl_socket_open");
+        goto error;
+    }
+
+    // Bind to netlink
+    LOG("[LIBMNL] Binding to Netlink\n");
+    if (mnl_socket_bind(nl, 0, MNL_SOCKET_AUTOPID) < 0)
+    {
+        LOG("[LIBMNL] mnl_socket_bind");
+        goto error_with_socket;
+    }
+
+    // Build the Netlink message
+    LOG("[LIBMNL] Building Netlink message\n");
+    build_netlink_msg(nl, ifi, nlh, RTM_NEWLINK, NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+
+    // Send the message
+    LOG("[LIBMNL] Sending Netlink message\n");
+    if (mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0)
+    {
+        LOG("[LIBMNL] Error: mnl_socket_sendto");
+        goto error_with_socket;
+    }
+
+    // Receive and parse all responses in a loop
+    LOG("[LIBMNL] Receiving Netlink responses\n");
+    if (receive_netlink_responses(nl) != EXIT_SUCCESS)
+    {
+        LOG("[LIBMNL] Error: receive_netlink_responses\n");
+        goto error_with_socket;
     }
 
     // If we reached here without an error, the veth creation succeeded.
@@ -166,4 +191,9 @@ int create_veth_pair(const char *host, const char *cont)
 
     mnl_socket_close(nl);
     return EXIT_SUCCESS;
+
+error_with_socket:
+    mnl_socket_close(nl);
+eror:
+    return EXIT_FAILURE;
 }
