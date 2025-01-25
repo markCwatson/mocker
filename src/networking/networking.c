@@ -11,18 +11,79 @@
 
 int setup_dns(void)
 {
-    char cmd[256];
+    char etc_path[256];
+    char src_file[] = "/etc/resolv.conf";
+    char dst_file[256];
+    int fd_src = -1;
+    int fd_dst = -1;
 
-    // Copy host's resolv.conf to container
-    snprintf(cmd, sizeof(cmd),
-             "mkdir -p %s/etc && cp /etc/resolv.conf %s/etc/resolv.conf",
-             CONTAINER_ROOT, CONTAINER_ROOT);
-    if (system(cmd) != 0)
+    // i.e. mkdir -p CONTAINER_ROOT/etc
+    snprintf(etc_path, sizeof(etc_path), "%s/etc", CONTAINER_ROOT);
+    if (mkdir(etc_path, 0755) == -1 && errno != EEXIST)
     {
-        LOG("[NET] Failed to setup DNS configuration\n");
+        LOG("[NET] Failed to create directory %s: %s\n",
+            etc_path, strerror(errno));
         return -1;
     }
 
+    // open /etc/resolv.conf to read from
+    fd_src = open(src_file, O_RDONLY);
+    if (fd_src < 0)
+    {
+        LOG("[NET] Failed to open source %s: %s\n",
+            src_file, strerror(errno));
+        return -1;
+    }
+
+    // open CONTAINER_ROOT/etc/resolv.conf to write to
+    snprintf(dst_file, sizeof(dst_file), "%s/etc/resolv.conf", CONTAINER_ROOT);
+    fd_dst = open(dst_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd_dst < 0)
+    {
+        LOG("[NET] Failed to open destination %s: %s\n",
+            dst_file, strerror(errno));
+        close(fd_src);
+        return -1;
+    }
+
+    // cp /etc/resolv.conf CONTAINER_ROOT/etc/resolv.conf
+    {
+        char buffer[4096];
+        ssize_t bytes_read;
+
+        while ((bytes_read = read(fd_src, buffer, sizeof(buffer))) > 0)
+        {
+            ssize_t bytes_written = 0;
+            char *write_ptr = buffer;
+
+            while (bytes_written < bytes_read)
+            {
+                ssize_t w = write(fd_dst, write_ptr + bytes_written,
+                                  bytes_read - bytes_written);
+                if (w < 0)
+                {
+                    LOG("[NET] Write failed: %s\n", strerror(errno));
+                    close(fd_src);
+                    close(fd_dst);
+                    return -1;
+                }
+                bytes_written += w;
+            }
+        }
+
+        if (bytes_read < 0)
+        {
+            LOG("[NET] Read failed: %s\n", strerror(errno));
+            close(fd_src);
+            close(fd_dst);
+            return -1;
+        }
+    }
+
+    close(fd_src);
+    close(fd_dst);
+
+    LOG("[NET] DNS configuration successfully copied.\n");
     return 0;
 }
 
