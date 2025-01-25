@@ -7,18 +7,16 @@
 #include <stddef.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/types.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <dirent.h>
 #include <limits.h>
 #include <sched.h>
 #include <signal.h>
-#include <unistd.h>
 #include <time.h>
 
 #define CONTAINER_ROOT "/tmp/mocker"

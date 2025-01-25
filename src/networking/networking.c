@@ -1,6 +1,6 @@
 #include "networking.h"
-#include "../logging.h"
 #include "libmnl.h"
+#include "../logging.h"
 
 #define VETH_HOST "veth0"
 #define VETH_CONTAINER "ceth0"
@@ -9,7 +9,7 @@
 #define NETMASK "16"
 #define CONTAINER_NETWORK "172.18.0.0/16"
 
-int setup_dns(pid_t child_pid)
+int setup_dns(void)
 {
     char cmd[256];
 
@@ -88,9 +88,19 @@ int setup_networking(pid_t child_pid)
 {
     char cmd[256];
 
+    struct veth_config_s veth_config = {
+        .child_pid = child_pid,
+        .host = VETH_HOST,
+        .cont = VETH_CONTAINER,
+        .nl = NULL,
+        .nlh = NULL,
+        .ifi = NULL,
+        .seq = 0,
+    };
+
     LOG("[NET] Setting up container networking...\n");
 
-    if (setup_dns(child_pid) != 0)
+    if (setup_dns() != 0)
     {
         LOG("[NET] Failed to setup DNS\n");
         goto cleanup;
@@ -98,7 +108,7 @@ int setup_networking(pid_t child_pid)
 
     // create veth pair
     // i.e. ip link add VETH_HOST type veth peer name VETH_CONTAINER
-    if (create_veth_pair(VETH_HOST, VETH_CONTAINER) != 0)
+    if (create_veth_pair(&veth_config) != 0)
     {
         LOG("[NET] Failed to create veth pair\n");
         goto cleanup;
@@ -106,11 +116,13 @@ int setup_networking(pid_t child_pid)
 
     // move container end to child's network namespace
     // i.e. ip link set VETH_CONTAINER netns child_pid
-    if (move_veth_to_ns(VETH_CONTAINER, child_pid) != 0)
+    if (move_veth_to_ns(&veth_config) != 0)
     {
         LOG("[NET] Failed to move interface to container namespace\n");
         goto cleanup;
     }
+
+    // \todo: convert the rest of this to use libmnl ....
 
     // setup host end
     snprintf(cmd, sizeof(cmd), "ip link set %s up", VETH_HOST);
