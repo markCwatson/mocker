@@ -69,10 +69,10 @@ static void build_setlink_msg(struct veth_config_s *config, char *buf)
     mnl_attr_put_u32(config->nlh, IFLA_NET_NS_PID, config->child_pid);
 }
 
-static void build_netlink_msg(struct veth_config_s *config, char *buf, uint16_t type, uint16_t flags)
+static void build_netlink_msg(struct veth_config_s *config, char *buf)
 {
     config->nlh = mnl_nlmsg_put_header(buf);
-    construct_netlink_msg_header(config->nlh, type, flags, config->seq);
+    construct_netlink_msg_header(config->nlh, RTM_NEWLINK, NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL, config->seq);
 
     // Outer ifinfomsg for the host interface
     // Note: u have to invoke mnl_nlmsg_put_header() before you call this function.
@@ -236,7 +236,7 @@ int create_veth_pair(struct veth_config_s *veth_config)
 
     // Build the Netlink message
     LOG("[LIBMNL] Building Netlink message\n");
-    build_netlink_msg(veth_config, buf, RTM_NEWLINK, NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_EXCL);
+    build_netlink_msg(veth_config, buf);
 
     // Send the message
     LOG("[LIBMNL] Sending Netlink message\n");
