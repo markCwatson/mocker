@@ -1,10 +1,12 @@
 # _mocker_: a minimal container runtime in C
 
+![Build Status](https://github.com/markCwatson/mocker/actions/workflows/build.yml/badge.svg)
+
 This project implements a basic container runtime in C that demonstrates core container concepts like process isolation, networking and filesystem isolation, and mount namespaces.
 
 [![Mocker demo](public/youtube.png)](https://www.youtube.com/watch?v=MNBXOb73fxs 'mocker demo')
 
-## Features
+## Featuress
 
 - **Process Isolation**: Makes use of Linux namespaces (PID, Mount, UTS, IPC) to isolate processes using [clone](https://man7.org/linux/man-pages/man2/clone.2.html) and the appropriate flags when creating the child process.
 - **Filesystem Isolation**: Creates an isolated filesystem environment by creating necessary directories, copying the [BusyBox](https://www.busybox.net/downloads/BusyBox.html) binary, and mapping symlinks to busybox utilities. It then uses [chroot](https://man7.org/linux/man-pages/man2/chroot.2.html) change the root filesystem, ensuring the child process operates within its own filesystem.
