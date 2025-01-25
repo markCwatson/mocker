@@ -24,7 +24,7 @@ This project implements a basic container runtime in C that demonstrates core co
 I am in the progress of replacing the networking setup from the use of linux utilities + `system()` to [netlink sockets in linux](https://man7.org/linux/man-pages/man7/netlink.7.html) using [libmnl](https://www.netfilter.org/projects/libmnl/doxygen/html/). The roadmap is as follows:
 
 1. Creating veth pairs :white_check_mark:
-2. Moving interfaces to namespaces
+2. Moving interfaces to namespaces :white_check_mark:
 3. Setting interface state (up/down)
 4. Configuring IP addresses
 5. Setting up routing

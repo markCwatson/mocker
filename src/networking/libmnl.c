@@ -23,8 +23,7 @@ struct veth_config_s
 
 // This callback is invoked for each netlink message in the response.
 // We check for netlink errors or an ACK.
-static int
-netlink_response_cb(const struct nlmsghdr *nlh, void *data)
+static int netlink_response_cb(const struct nlmsghdr *nlh, void *data)
 {
     (void)data;
 
@@ -62,6 +61,21 @@ static void construct_netlink_msg_header(struct nlmsghdr *nlh, uint16_t type, ui
     nlh->nlmsg_type = type;
     nlh->nlmsg_flags = flags;
     nlh->nlmsg_seq = seq;
+}
+
+static void build_setlink_msg(struct veth_config_s *config, char *buf, const char *cont, pid_t pid)
+{
+    config->nlh = mnl_nlmsg_put_header(buf);
+    construct_netlink_msg_header(config->nlh, RTM_SETLINK, NLM_F_REQUEST | NLM_F_ACK, config->seq);
+
+    config->ifi = mnl_nlmsg_put_extra_header(config->nlh, sizeof(struct ifinfomsg));
+    config->ifi->ifi_family = AF_UNSPEC;
+
+    // Add the interface name
+    mnl_attr_put_strz(config->nlh, IFLA_IFNAME, cont);
+
+    // Add the target namespace PID
+    mnl_attr_put_u32(config->nlh, IFLA_NET_NS_PID, pid);
 }
 
 static void build_netlink_msg(struct veth_config_s *config, char *buf, uint16_t type, uint16_t flags)
@@ -151,6 +165,80 @@ static int receive_netlink_responses(struct veth_config_s *config)
     return EXIT_SUCCESS;
 }
 
+static int open_and_bind_netlink_socket(struct mnl_socket **nl)
+{
+    // Open Netlink socket
+    LOG("[LIBMNL] Opening Netlink socket\n");
+    *nl = mnl_socket_open(NETLINK_ROUTE);
+    if (!*nl)
+    {
+        LOG("[LIBMNL] mnl_socket_open");
+        goto error;
+    }
+
+    // Bind to netlink
+    LOG("[LIBMNL] Binding to Netlink\n");
+    if (mnl_socket_bind(*nl, 0, MNL_SOCKET_AUTOPID) < 0)
+    {
+        LOG("[LIBMNL] mnl_socket_bind");
+        goto error_with_socket;
+    }
+
+    return EXIT_SUCCESS;
+
+error_with_socket:
+    mnl_socket_close(*nl);
+error:
+    return EXIT_FAILURE;
+}
+
+int move_veth_to_ns(const char *cont, pid_t pid)
+{
+    char buf[MNL_SOCKET_BUFFER_SIZE];
+    struct veth_config_s veth_config = {
+        .host = NULL,
+        .cont = cont,
+        .nl = NULL,
+        .nlh = NULL,
+        .ifi = NULL,
+        .seq = (uint32_t)time(NULL),
+    };
+
+    if (open_and_bind_netlink_socket(&veth_config.nl) != EXIT_SUCCESS)
+    {
+        LOG("[LIBMNL] Error: open_and_bind_netlink_socket\n");
+        return EXIT_FAILURE;
+    }
+
+    // Build the Netlink message
+    LOG("[LIBMNL] Building RTM_SETLINK message\n");
+    build_setlink_msg(&veth_config, buf, cont, pid);
+
+    // Send the message
+    LOG("[LIBMNL] Sending Netlink message\n");
+    if (mnl_socket_sendto(veth_config.nl, veth_config.nlh, veth_config.nlh->nlmsg_len) < 0)
+    {
+        LOG("[LIBMNL] Error: mnl_socket_sendto");
+        goto error;
+    }
+
+    // Receive and parse all responses in a loop
+    LOG("[LIBMNL] Receiving Netlink responses\n");
+    if (receive_netlink_responses(&veth_config) != EXIT_SUCCESS)
+    {
+        LOG("[LIBMNL] Error: receive_netlink_responses\n");
+        goto error;
+    }
+
+    LOG("[LIBMNL] Successfully moved interface to namespace");
+    mnl_socket_close(veth_config.nl);
+    return EXIT_SUCCESS;
+
+error:
+    mnl_socket_close(veth_config.nl);
+    return EXIT_FAILURE;
+}
+
 int create_veth_pair(const char *host, const char *cont)
 {
     char buf[MNL_SOCKET_BUFFER_SIZE];
@@ -163,21 +251,10 @@ int create_veth_pair(const char *host, const char *cont)
         .seq = (uint32_t)time(NULL),
     };
 
-    // Open Netlink socket
-    LOG("[LIBMNL] Opening Netlink socket\n");
-    veth_config.nl = mnl_socket_open(NETLINK_ROUTE);
-    if (!veth_config.nl)
+    if (open_and_bind_netlink_socket(&veth_config.nl) != EXIT_SUCCESS)
     {
-        LOG("[LIBMNL] mnl_socket_open");
-        goto error;
-    }
-
-    // Bind to netlink
-    LOG("[LIBMNL] Binding to Netlink\n");
-    if (mnl_socket_bind(veth_config.nl, 0, MNL_SOCKET_AUTOPID) < 0)
-    {
-        LOG("[LIBMNL] mnl_socket_bind");
-        goto error_with_socket;
+        LOG("[LIBMNL] Error: open_and_bind_netlink_socket\n");
+        return EXIT_FAILURE;
     }
 
     // Build the Netlink message
@@ -189,7 +266,7 @@ int create_veth_pair(const char *host, const char *cont)
     if (mnl_socket_sendto(veth_config.nl, veth_config.nlh, veth_config.nlh->nlmsg_len) < 0)
     {
         LOG("[LIBMNL] Error: mnl_socket_sendto");
-        goto error_with_socket;
+        goto error;
     }
 
     // Receive and parse all responses in a loop
@@ -197,17 +274,14 @@ int create_veth_pair(const char *host, const char *cont)
     if (receive_netlink_responses(&veth_config) != EXIT_SUCCESS)
     {
         LOG("[LIBMNL] Error: receive_netlink_responses\n");
-        goto error_with_socket;
+        goto error;
     }
 
-    // If we reached here without an error, the veth creation succeeded.
     LOG("[LIBMNL] veth pair created successfully\n");
-
     mnl_socket_close(veth_config.nl);
     return EXIT_SUCCESS;
 
-error_with_socket:
-    mnl_socket_close(veth_config.nl);
 error:
+    mnl_socket_close(veth_config.nl);
     return EXIT_FAILURE;
 }

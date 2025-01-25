@@ -105,10 +105,8 @@ int setup_networking(pid_t child_pid)
     }
 
     // move container end to child's network namespace
-    snprintf(cmd, sizeof(cmd),
-             "ip link set %s netns %d",
-             VETH_CONTAINER, child_pid);
-    if (system(cmd) != 0)
+    // i.e. ip link set VETH_CONTAINER netns child_pid
+    if (move_veth_to_ns(VETH_CONTAINER, child_pid) != 0)
     {
         LOG("[NET] Failed to move interface to container namespace\n");
         goto cleanup;
