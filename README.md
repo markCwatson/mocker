@@ -23,9 +23,10 @@ I am in the process of replacing the networking setup from the use of linux util
 2. Moving interfaces to namespaces :white_check_mark:
 3. Setting host interface state up :white_check_mark:
 4. Configuring IP address on host :white_check_mark:
-5. Setting continaer interface state up :hourglass_flowing_sand:
-6. Configuring IP address in container
-7. Setting up routing
+5. Setting continaer interface state up :white_check_mark:
+6. Configuring IP address in container :white_check_mark:
+7. Setting up routing :white_check_mark:
+8. Setting NAT rules :hourglass_flowing_sand:
 
 ## Requirements
 

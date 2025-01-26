@@ -11,6 +11,8 @@
 #include <linux/if_addr.h>
 #include <arpa/inet.h>
 
+// \todo: make the log messages more meaningful. Too many duplicate messages.
+
 // fallback (compiler is complaining about missing definitions)
 #ifndef IFLA_VETH_INFO_PEER
 #define IFLA_VETH_INFO_PEER 1
@@ -87,6 +89,44 @@ static void build_set_ip_msg(struct veth_config_s *config, const char *ip, const
 
     // Add the IFA_ADDRESS attribute (Peer or broadcast address, same as local)
     mnl_attr_put(config->nlh, IFA_ADDRESS, sizeof(struct in_addr), &in_addr);
+}
+
+static void build_newroute_msg(struct veth_config_s *config, const char *gateway_ip, char *buf)
+{
+    config->nlh = mnl_nlmsg_put_header(buf);
+    construct_netlink_msg_header(config->nlh, RTM_NEWROUTE, NLM_F_REQUEST | NLM_F_CREATE | NLM_F_ACK, config->seq);
+
+    struct rtmsg *rtm;
+    rtm = mnl_nlmsg_put_extra_header(config->nlh, sizeof(struct rtmsg));
+    rtm->rtm_family = AF_INET;          // IPv4
+    rtm->rtm_dst_len = 0;               // Default route
+    rtm->rtm_src_len = 0;               // No source filter
+    rtm->rtm_table = RT_TABLE_MAIN;     // Main routing table
+    rtm->rtm_protocol = RTPROT_STATIC;  // Static route
+    rtm->rtm_scope = RT_SCOPE_UNIVERSE; // Global scope
+    rtm->rtm_type = RTN_UNICAST;        // Unicast route
+
+    // Add the gateway attribute (RTA_GATEWAY)
+    struct in_addr gateway;
+    if (inet_pton(AF_INET, gateway_ip, &gateway) != 1)
+    {
+        LOG("[NET] build_newroute_msg: Error: Invalid gateway IP address\n");
+        mnl_socket_close(config->nl);
+        return;
+    }
+
+    mnl_attr_put_u32(config->nlh, RTA_GATEWAY, gateway.s_addr);
+
+    // Add the output interface (RTA_OIF)
+    uint32_t ifindex = if_nametoindex(config->cont);
+    if (ifindex == 0)
+    {
+        LOG("[NET] build_newroute_msg: Error: Failed to get index for interface %s\n", config->cont);
+        mnl_socket_close(config->nl);
+        return;
+    }
+
+    mnl_attr_put_u32(config->nlh, RTA_OIF, ifindex);
 }
 
 static void build_link_up_msg(struct veth_config_s *config, char *buf)
@@ -259,6 +299,36 @@ int set_interface_ip(struct veth_config_s *veth_config, const char *iface, const
     if (receive_netlink_responses(veth_config) != EXIT_SUCCESS)
     {
         LOG("[NET] Error: Failed to set interface IP\n");
+        mnl_socket_close(veth_config->nl);
+        return EXIT_FAILURE;
+    }
+
+    mnl_socket_close(veth_config->nl);
+    return EXIT_SUCCESS;
+}
+
+int set_default_route(struct veth_config_s *veth_config, const char *gateway_ip)
+{
+    char buf[MNL_SOCKET_BUFFER_SIZE];
+    veth_config->seq = (uint32_t)time(NULL);
+
+    if (open_and_bind_netlink_socket(&veth_config->nl) != EXIT_SUCCESS)
+    {
+        LOG("[NET] Error: Failed to open netlink socket\n");
+        return EXIT_FAILURE;
+    }
+
+    build_newroute_msg(veth_config, gateway_ip, buf);
+    if (mnl_socket_sendto(veth_config->nl, veth_config->nlh, veth_config->nlh->nlmsg_len) < 0)
+    {
+        LOG("[NET] Error: Failed to send netlink message\n");
+        mnl_socket_close(veth_config->nl);
+        return EXIT_FAILURE;
+    }
+
+    if (receive_netlink_responses(veth_config) != EXIT_SUCCESS)
+    {
+        LOG("[NET] Error: Failed to set default route\n");
         mnl_socket_close(veth_config->nl);
         return EXIT_FAILURE;
     }

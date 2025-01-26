@@ -1,3 +1,4 @@
+#define _GNU_SOURCE // note: i needed this for setns ?? see `man 2 setns`
 #include "networking.h"
 #include "libmnl.h"
 #include "../logging.h"
@@ -9,7 +10,62 @@
 #define NETMASK "16"
 #define CONTAINER_NETWORK "172.18.0.0/16"
 
-int setup_dns(void)
+static int switch_to_container_ns(struct veth_config_s *veth_config)
+{
+    char ns_path[256];
+    snprintf(ns_path, sizeof(ns_path), "/proc/%d/ns/%s", veth_config->child_pid, veth_config->child_namespace);
+
+    int fd = open(ns_path, O_RDONLY);
+    if (fd == -1)
+    {
+        perror("open namespace");
+        LOG("[LIBMNL] switch_to_container_ns: Error: open namespace\n");
+        return EXIT_FAILURE;
+    }
+
+    if (setns(fd, 0) == -1)
+    {
+        perror("setns");
+        LOG("[LIBMNL] switch_to_container_ns: Error: setns\n");
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return 0;
+}
+
+static int save_current_namespace(const char *namespace, int *ns_fd)
+{
+    char ns_path[256];
+    snprintf(ns_path, sizeof(ns_path), "/proc/self/ns/%s", namespace);
+
+    *ns_fd = open(ns_path, O_RDONLY);
+    if (*ns_fd == -1)
+    {
+        perror("open host namespace");
+        LOG("[NET] Failed to open self namespace\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int restore_namespace(int ns_fd)
+{
+    if (setns(ns_fd, 0) == -1)
+    {
+        perror("setns");
+        LOG("[NET] Failed to restore namespace\n");
+        close(ns_fd);
+        return -1;
+    }
+
+    close(ns_fd);
+    return 0;
+}
+
+static int setup_dns(void)
 {
     char etc_path[256];
     char src_file[] = "/etc/resolv.conf";
@@ -87,7 +143,7 @@ int setup_dns(void)
     return 0;
 }
 
-int enable_ip_forwarding(void)
+static int enable_ip_forwarding(void)
 {
     const char *forwarding_file = "/proc/sys/net/ipv4/ip_forward";
     FILE *fp = fopen(forwarding_file, "w");
@@ -103,7 +159,7 @@ int enable_ip_forwarding(void)
     return 0;
 }
 
-int setup_nat_rules(void)
+static int setup_nat_rules(void)
 {
     char cmd[256];
 
@@ -126,7 +182,7 @@ int setup_nat_rules(void)
     return 0;
 }
 
-void cleanup_nat_rules(void)
+static void cleanup_nat_rules(void)
 {
     char cmd[256];
     snprintf(cmd, sizeof(cmd),
@@ -147,10 +203,11 @@ void cleanup_networking(void)
 
 int setup_networking(pid_t child_pid)
 {
-    char cmd[256];
+    int host_ns_fd;
 
     struct veth_config_s veth_config = {
         .child_pid = child_pid,
+        .child_namespace = "net",
         .host = VETH_HOST,
         .cont = VETH_CONTAINER,
         .nl = NULL,
@@ -160,6 +217,13 @@ int setup_networking(pid_t child_pid)
     };
 
     LOG("[NET] Setting up container networking...\n");
+
+    // Save the current (host) namespace
+    if (save_current_namespace("net", &host_ns_fd) != 0)
+    {
+        LOG("[NET] Failed to save host namespace\n");
+        goto cleanup;
+    }
 
     // i.e. mkdir -p CONTAINER_ROOT/etc
     //      && cp /etc/resolv.conf CONTAINER_ROOT/etc/resolv.conf
@@ -202,43 +266,47 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    // \todo: convert the rest of this to use libmnl ....
-
     // setup container end
-    snprintf(cmd, sizeof(cmd),
-             "nsenter -t %d -n ip link set lo up", child_pid);
-    if (system(cmd) != 0)
+    // i.e. nsenter -t child_pid
+    if (switch_to_container_ns(&veth_config) != 0)
     {
-        LOG("[NET] Failed to set container loopback up\n");
+        LOG("[NET] Failed to switch to container namespace\n");
         goto cleanup;
     }
 
-    snprintf(cmd, sizeof(cmd),
-             "nsenter -t %d -n ip link set %s up",
-             child_pid, VETH_CONTAINER);
-    if (system(cmd) != 0)
+    if (set_interface_up(&veth_config, "lo") != 0)
     {
-        LOG("[NET] Failed to set container interface up\n");
+        LOG("[NET] Failed to set up loopback interface in container\n");
         goto cleanup;
     }
 
-    snprintf(cmd, sizeof(cmd),
-             "nsenter -t %d -n ip addr add %s/%s dev %s",
-             child_pid, CONTAINER_IP, NETMASK, VETH_CONTAINER);
-    if (system(cmd) != 0)
+    if (set_interface_up(&veth_config, VETH_CONTAINER) != 0)
+    {
+        LOG("[NET] Failed to set up container interface\n");
+        goto cleanup;
+    }
+
+    if (set_interface_ip(&veth_config, VETH_CONTAINER, CONTAINER_IP, 16) != 0)
     {
         LOG("[NET] Failed to set container IP\n");
         goto cleanup;
     }
 
-    snprintf(cmd, sizeof(cmd),
-             "nsenter -t %d -n ip route add default via %s",
-             child_pid, HOST_IP);
-    if (system(cmd) != 0)
+    // set default route in container (still in container's namespace)
+    // i.e. ip route add default via HOST_IP
+    if (set_default_route(&veth_config, HOST_IP) != 0)
     {
-        LOG("[NET] Failed to set container default route\n");
+        LOG("[NET] Failed to switch to container namespace\n");
         goto cleanup;
     }
+
+    if (restore_namespace(host_ns_fd) != 0)
+    {
+        LOG("[NET] Failed to restore host namespace\n");
+        goto cleanup;
+    }
+
+    // \todo: convert the rest of this to use libmnl ....
 
     if (enable_ip_forwarding() != 0)
     {
