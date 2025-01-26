@@ -8,6 +8,8 @@
 #include <libmnl/libmnl.h>
 #include <net/if.h>
 #include <linux/if.h>
+#include <linux/if_addr.h>
+#include <arpa/inet.h>
 
 // fallback (compiler is complaining about missing definitions)
 #ifndef IFLA_VETH_INFO_PEER
@@ -54,6 +56,37 @@ static void construct_netlink_msg_header(struct nlmsghdr *nlh, uint16_t type, ui
     nlh->nlmsg_type = type;
     nlh->nlmsg_flags = flags;
     nlh->nlmsg_seq = seq;
+}
+
+static void build_set_ip_msg(struct veth_config_s *config, const char *ip, const int prefix_len, char *buf)
+{
+    struct ifaddrmsg *ifa;
+    struct in_addr in_addr;
+
+    LOG("[NET] Setting IP address %s/%d on interface %s\n", ip, prefix_len, config->host);
+    if (inet_pton(AF_INET, ip, &in_addr) != 1)
+    {
+        LOG("[NET] Error: Invalid IP address: %s\n", ip);
+        return;
+    }
+
+    // Construct the netlink message
+    config->nlh = mnl_nlmsg_put_header(buf);
+    construct_netlink_msg_header(config->nlh, RTM_NEWADDR, NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK, config->seq);
+
+    // Add the ifaddrmsg structure
+    ifa = mnl_nlmsg_put_extra_header(config->nlh, sizeof(struct ifaddrmsg));
+    ifa->ifa_family = AF_INET;                     // IPv4
+    ifa->ifa_prefixlen = prefix_len;               // Set prefix length
+    ifa->ifa_flags = 0;                            // No special flags
+    ifa->ifa_scope = RT_SCOPE_UNIVERSE;            // Global scope
+    ifa->ifa_index = if_nametoindex(config->host); // Interface index
+
+    // Add the IFA_LOCAL attribute (Primary IPv4 address)
+    mnl_attr_put(config->nlh, IFA_LOCAL, sizeof(struct in_addr), &in_addr);
+
+    // Add the IFA_ADDRESS attribute (Peer or broadcast address, same as local)
+    mnl_attr_put(config->nlh, IFA_ADDRESS, sizeof(struct in_addr), &in_addr);
 }
 
 static void build_link_up_msg(struct veth_config_s *config, char *buf)
@@ -199,6 +232,39 @@ error_with_socket:
     mnl_socket_close(*nl);
 error:
     return EXIT_FAILURE;
+}
+
+int set_interface_ip(struct veth_config_s *veth_config, const char *iface, const char *ip, const int prefix_len)
+{
+    char buf[MNL_SOCKET_BUFFER_SIZE];
+    veth_config->host = iface;
+    veth_config->seq = (uint32_t)time(NULL);
+
+    if (open_and_bind_netlink_socket(&veth_config->nl) != EXIT_SUCCESS)
+    {
+        LOG("[NET] Error: Failed to open netlink socket\n");
+        return -1;
+    }
+
+    // Build and send the netlink message
+    build_set_ip_msg(veth_config, ip, prefix_len, buf);
+    if (mnl_socket_sendto(veth_config->nl, veth_config->nlh, veth_config->nlh->nlmsg_len) < 0)
+    {
+        LOG("[NET] Error: Failed to send netlink message\n");
+        mnl_socket_close(veth_config->nl);
+        return EXIT_FAILURE;
+    }
+
+    // Process responses
+    if (receive_netlink_responses(veth_config) != EXIT_SUCCESS)
+    {
+        LOG("[NET] Error: Failed to set interface IP\n");
+        mnl_socket_close(veth_config->nl);
+        return EXIT_FAILURE;
+    }
+
+    mnl_socket_close(veth_config->nl);
+    return EXIT_SUCCESS;
 }
 
 int set_interface_up(struct veth_config_s *veth_config, const char *iface)

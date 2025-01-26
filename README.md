@@ -22,9 +22,10 @@ I am in the process of replacing the networking setup from the use of linux util
 1. Creating veth pairs :white_check_mark:
 2. Moving interfaces to namespaces :white_check_mark:
 3. Setting host interface state up :white_check_mark:
-4. Setting continaer interface state up :hourglass_flowing_sand:
-5. Configuring IP addresses
-6. Setting up routing
+4. Configuring IP address on host :white_check_mark:
+5. Setting continaer interface state up :hourglass_flowing_sand:
+6. Configuring IP address in container
+7. Setting up routing
 
 ## Requirements
 
@@ -80,10 +81,14 @@ sudo ./mocker run ubuntu:latest /bin/ps
 # Test networking
 sudo ./mocker run ubuntu:latest /bin/sh
 ip link ls                  # should show lo and ceth0
-ping -c 3 google.com        # should ping google (proves internet connectivity and DNS config)
+ip addr show dev ceth0      # should show IP address for veth in container
 ip route show               # should show default route
+ping -c 3 google.com        # should ping google (proves internet connectivity and DNS config)
 # and from the host machine (in another terminal)
 sudo iptables -t nat -L POSTROUTING -n # should show MASQUERADE rule
+ip addr show dev veth0      # should show IP address for veth on host side
+ip link ls                  # should show veth0 on host
+sudo tcpdump -i veth0       # keep this open and run the ping in container and watch traffic on interface
 # exit container and verify cleanup
 ip link ls | grep veth0     # should show nothing (successfully cleaned up when container stops)
 ```

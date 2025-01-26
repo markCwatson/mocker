@@ -193,16 +193,16 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    // \todo: convert the rest of this to use libmnl ....
-
-    snprintf(cmd, sizeof(cmd),
-             "ip addr add %s/%s dev %s",
-             HOST_IP, NETMASK, VETH_HOST);
-    if (system(cmd) != 0)
+    // setup host ip address
+    // i.e. ip addr add HOST_IP/NETMASK dev VETH_HOST
+    // \todo: change NETMASK to 16 (int instead of string) and pass in here
+    if (set_interface_ip(&veth_config, VETH_HOST, HOST_IP, 16) != 0)
     {
         LOG("[NET] Failed to set host IP\n");
         goto cleanup;
     }
+
+    // \todo: convert the rest of this to use libmnl ....
 
     // setup container end
     snprintf(cmd, sizeof(cmd),
