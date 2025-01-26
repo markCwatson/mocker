@@ -21,6 +21,7 @@ struct veth_config_s
     uint32_t seq;
 };
 
+int setup_nat_rules(struct veth_config_s *veth_config, const char *container_network);
 int set_default_route(struct veth_config_s *veth_config, const char *gateway_ip);
 int set_interface_ip(struct veth_config_s *veth_config, const char *iface, const char *ip, const int prefix_len);
 int set_interface_up(struct veth_config_s *veth_config, const char *iface);

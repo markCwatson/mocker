@@ -274,6 +274,30 @@ error:
     return EXIT_FAILURE;
 }
 
+// \todo: not sure how to use libmnl to do this....
+int setup_nat_rules(struct veth_config_s *veth_config, const char *container_network)
+{
+    char cmd[256];
+
+    // Clear any existing NAT rules for our network
+    snprintf(cmd, sizeof(cmd),
+             "iptables -t nat -D POSTROUTING -s %s ! -o %s -j MASQUERADE 2>/dev/null",
+             container_network, veth_config->host);
+    system(cmd);
+
+    // Add NAT rule
+    snprintf(cmd, sizeof(cmd),
+             "iptables -t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE",
+             container_network, veth_config->host);
+    if (system(cmd) != 0)
+    {
+        LOG("[NET] Failed to set up NAT rules\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 int set_interface_ip(struct veth_config_s *veth_config, const char *iface, const char *ip, const int prefix_len)
 {
     char buf[MNL_SOCKET_BUFFER_SIZE];

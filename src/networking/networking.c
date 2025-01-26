@@ -159,29 +159,6 @@ static int enable_ip_forwarding(void)
     return 0;
 }
 
-static int setup_nat_rules(void)
-{
-    char cmd[256];
-
-    // Clear any existing NAT rules for our network
-    snprintf(cmd, sizeof(cmd),
-             "iptables -t nat -D POSTROUTING -s %s ! -o %s -j MASQUERADE 2>/dev/null",
-             CONTAINER_NETWORK, VETH_HOST);
-    system(cmd);
-
-    // Add NAT rule
-    snprintf(cmd, sizeof(cmd),
-             "iptables -t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE",
-             CONTAINER_NETWORK, VETH_HOST);
-    if (system(cmd) != 0)
-    {
-        LOG("[NET] Failed to set up NAT rules\n");
-        return -1;
-    }
-
-    return 0;
-}
-
 static void cleanup_nat_rules(void)
 {
     char cmd[256];
@@ -314,7 +291,7 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    if (setup_nat_rules() != 0)
+    if (setup_nat_rules(&veth_config, CONTAINER_NETWORK) != 0)
     {
         LOG("[NET] Failed to setup NAT\n");
         goto cleanup;
