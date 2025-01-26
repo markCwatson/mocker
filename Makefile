@@ -4,9 +4,10 @@ OUTPUT = mocker
 FLAGS = -g -Wall
 LINKS = -lcurl -lmnl
 SRC = src/*.c src/*/*.c
+DEBUG = # -DENABLE_LOGGING
 
 all:
-	$(COMPILER) $(FLAGS) -o $(OUTPUT) -I$(INCLUDES) $(SRC) $(LINKS)
+	$(COMPILER) $(FLAGS) $(DEBUG) -o $(OUTPUT) -I$(INCLUDES) $(SRC) $(LINKS)
 
 clean:
 	rm -f mocker

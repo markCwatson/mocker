@@ -20,6 +20,7 @@ struct veth_config_s
     uint32_t seq;
 };
 
+int set_interface_up(struct veth_config_s *veth_config, const char *iface);
 int move_veth_to_ns(struct veth_config_s *veth_config);
 int create_veth_pair(struct veth_config_s *veth_config);
 

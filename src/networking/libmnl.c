@@ -6,6 +6,8 @@
 #include <linux/rtnetlink.h>
 #include <linux/if_link.h>
 #include <libmnl/libmnl.h>
+#include <net/if.h>
+#include <linux/if.h>
 
 // fallback (compiler is complaining about missing definitions)
 #ifndef IFLA_VETH_INFO_PEER
@@ -52,6 +54,22 @@ static void construct_netlink_msg_header(struct nlmsghdr *nlh, uint16_t type, ui
     nlh->nlmsg_type = type;
     nlh->nlmsg_flags = flags;
     nlh->nlmsg_seq = seq;
+}
+
+static void build_link_up_msg(struct veth_config_s *config, char *buf)
+{
+    config->nlh = mnl_nlmsg_put_header(buf);
+    construct_netlink_msg_header(config->nlh, RTM_NEWLINK, NLM_F_REQUEST | NLM_F_ACK, config->seq);
+
+    // Add ifinfomsg structure
+    config->ifi = mnl_nlmsg_put_extra_header(config->nlh, sizeof(struct ifinfomsg));
+    config->ifi->ifi_family = AF_UNSPEC;
+    config->ifi->ifi_index = if_nametoindex(config->host);
+    config->ifi->ifi_flags = IFF_UP;
+    config->ifi->ifi_change = IFF_UP;
+
+    // Add the interface name attribute
+    mnl_attr_put_strz(config->nlh, IFLA_IFNAME, config->host);
 }
 
 static void build_setlink_msg(struct veth_config_s *config, char *buf)
@@ -108,7 +126,7 @@ static void build_netlink_msg(struct veth_config_s *config, char *buf)
 
                 // Then the peer’s name
                 mnl_attr_put_strz(config->nlh, IFLA_IFNAME, config->cont);
-                LOG("[LIBMNL] Peer name: %s\n", cont);
+                LOG("[LIBMNL] Peer name: %s\n", config->cont);
             }
             mnl_attr_nest_end(config->nlh, peerinfo);
         }
@@ -133,7 +151,7 @@ static int receive_netlink_responses(struct veth_config_s *config)
                 break;
             }
 
-            LOG("[LIBMNL] mnl_socket_recvfrom: errno != EAGAIN\n")
+            LOG("[LIBMNL] mnl_socket_recvfrom: errno != EAGAIN\n");
             mnl_socket_close(config->nl);
             return EXIT_FAILURE;
         }
@@ -171,7 +189,7 @@ static int open_and_bind_netlink_socket(struct mnl_socket **nl)
     LOG("[LIBMNL] Binding to Netlink\n");
     if (mnl_socket_bind(*nl, 0, MNL_SOCKET_AUTOPID) < 0)
     {
-        LOG("[LIBMNL] mnl_socket_bind");
+        LOG("[LIBMNL] mnl_socket_bind\n");
         goto error_with_socket;
     }
 
@@ -181,6 +199,39 @@ error_with_socket:
     mnl_socket_close(*nl);
 error:
     return EXIT_FAILURE;
+}
+
+int set_interface_up(struct veth_config_s *veth_config, const char *iface)
+{
+    char buf[MNL_SOCKET_BUFFER_SIZE];
+    veth_config->host = iface;
+    veth_config->seq = (uint32_t)time(NULL);
+
+    if (open_and_bind_netlink_socket(&veth_config->nl) != EXIT_SUCCESS)
+    {
+        LOG("[NET] Error: Failed to open netlink socket\n");
+        return -1;
+    }
+
+    // Build and send the netlink message
+    build_link_up_msg(veth_config, buf);
+    if (mnl_socket_sendto(veth_config->nl, veth_config->nlh, veth_config->nlh->nlmsg_len) < 0)
+    {
+        LOG("[NET] Error: Failed to send netlink message\n");
+        mnl_socket_close(veth_config->nl);
+        return EXIT_FAILURE;
+    }
+
+    // Process responses
+    if (receive_netlink_responses(veth_config) != EXIT_SUCCESS)
+    {
+        LOG("[NET] Error: Failed to set interface up\n");
+        mnl_socket_close(veth_config->nl);
+        return EXIT_FAILURE;
+    }
+
+    mnl_socket_close(veth_config->nl);
+    return EXIT_SUCCESS;
 }
 
 int move_veth_to_ns(struct veth_config_s *veth_config)
@@ -202,7 +253,7 @@ int move_veth_to_ns(struct veth_config_s *veth_config)
     LOG("[LIBMNL] Sending Netlink message\n");
     if (mnl_socket_sendto(veth_config->nl, veth_config->nlh, veth_config->nlh->nlmsg_len) < 0)
     {
-        LOG("[LIBMNL] Error: mnl_socket_sendto");
+        LOG("[LIBMNL] Error: mnl_socket_sendto\n");
         goto error;
     }
 
@@ -214,7 +265,7 @@ int move_veth_to_ns(struct veth_config_s *veth_config)
         goto error;
     }
 
-    LOG("[LIBMNL] Successfully moved interface to namespace");
+    LOG("[LIBMNL] Successfully moved interface to namespace\n");
     mnl_socket_close(veth_config->nl);
     return EXIT_SUCCESS;
 
@@ -242,7 +293,7 @@ int create_veth_pair(struct veth_config_s *veth_config)
     LOG("[LIBMNL] Sending Netlink message\n");
     if (mnl_socket_sendto(veth_config->nl, veth_config->nlh, veth_config->nlh->nlmsg_len) < 0)
     {
-        LOG("[LIBMNL] Error: mnl_socket_sendto");
+        LOG("[LIBMNL] Error: mnl_socket_sendto\n");
         goto error;
     }
 

@@ -161,6 +161,8 @@ int setup_networking(pid_t child_pid)
 
     LOG("[NET] Setting up container networking...\n");
 
+    // i.e. mkdir -p CONTAINER_ROOT/etc
+    //      && cp /etc/resolv.conf CONTAINER_ROOT/etc/resolv.conf
     if (setup_dns() != 0)
     {
         LOG("[NET] Failed to setup DNS\n");
@@ -183,15 +185,15 @@ int setup_networking(pid_t child_pid)
         goto cleanup;
     }
 
-    // \todo: convert the rest of this to use libmnl ....
-
     // setup host end
-    snprintf(cmd, sizeof(cmd), "ip link set %s up", VETH_HOST);
-    if (system(cmd) != 0)
+    // i.e. ip link set VETH_HOST up"
+    if (set_interface_up(&veth_config, VETH_HOST) != 0)
     {
         LOG("[NET] Failed to set host interface up\n");
         goto cleanup;
     }
+
+    // \todo: convert the rest of this to use libmnl ....
 
     snprintf(cmd, sizeof(cmd),
              "ip addr add %s/%s dev %s",
