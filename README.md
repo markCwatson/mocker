@@ -21,9 +21,10 @@ I am in the process of replacing the networking setup from the use of linux util
 
 1. Creating veth pairs :white_check_mark:
 2. Moving interfaces to namespaces :white_check_mark:
-3. Setting interface state (up/down)
-4. Configuring IP addresses
-5. Setting up routing
+3. Setting host interface state up :white_check_mark:
+4. Setting continaer interface state up :hourglass_flowing_sand:
+5. Configuring IP addresses
+6. Setting up routing
 
 ## Requirements
 
