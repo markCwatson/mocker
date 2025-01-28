@@ -4,7 +4,7 @@ OUTPUT = mocker
 FLAGS = -g -Wall
 LINKS = -lcurl -lmnl
 SRC = src/*.c src/*/*.c
-DEBUG = -DENABLE_LOGGING
+DEBUG = #-DENABLE_LOGGING
 
 all:
 	$(COMPILER) $(FLAGS) $(DEBUG) -o $(OUTPUT) -I$(INCLUDES) $(SRC) $(LINKS)

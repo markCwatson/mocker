@@ -6,20 +6,38 @@ This project implements a basic container runtime in C that demonstrates core co
 
 [![Mocker demo](public/youtube.png)](https://www.youtube.com/watch?v=MNBXOb73fxs 'mocker demo')
 
-## Featuress
+## Features
 
-- **Process Isolation**: Makes use of Linux namespaces (PID, Mount, UTS, IPC) to isolate processes using [clone](https://man7.org/linux/man-pages/man2/clone.2.html) and the appropriate flags when creating the child process.
-- **Filesystem Isolation**: Creates an isolated filesystem environment by creating necessary directories, copying the [BusyBox](https://www.busybox.net/downloads/BusyBox.html) binary, and mapping symlinks to busybox utilities. It then uses [chroot](https://man7.org/linux/man-pages/man2/chroot.2.html) change the root filesystem, ensuring the child process operates within its own filesystem.
-- **Mount Namespace**: Configures essential filesystem mounts, including `proc`, `sys`, and `tmpfs`, within the container's root filesystem. This is done using the [mount](https://man7.org/linux/man-pages/man2/mount.2.html) system call to ensure the container has access to necessary system information and temporary storage.
-- **Minimal Root Filesystem**: Uses busyBox to provide a minimal set of Unix utilities within the container. This involves copying the BusyBox binary to the container's `bin` directory and creating symbolic links for various utilities.
-- **Networking**: Uses [libmnl](https://www.netfilter.org/projects/libmnl/doxygen/html/) to communicate with [netlink sockets in linux](https://man7.org/linux/man-pages/man7/netlink.7.html) to configure networking. This includes network namespace isolation using the `clone()` system call, virtual ethernet (veth) pair creation for container-host communication, IP address configuration for both container and host interfaces, NAT setup using iptables for internet connectivity, and DNS resolution through host DNS configuration (see note below). Thank you Ivan Velichko of [iximiuz labs](https://labs.iximiuz.com/tutorials/container-networking-from-scratch) for your articles/tutorials on container networking!
-- **Cleanup**: Ensures proper unmounting of filesystems, networking, and cleanup of resources to maintain system integrity using [umount2](https://man7.org/linux/man-pages/man2/umount.2.html). This involves unmounting the `proc`, `sys`, and `tmpfs` filesystems, removing any temporary directories created during the setup, and deletion of the virtual ethernet interfaces.
+- **Process Isolation**: Uses Linux namespaces (PID, Mount, UTS, IPC) to isolate processes. The `clone()` system call is used with the appropriate flags to create isolated child processes, ensuring separation from the host system.
+
+- **Filesystem Isolation**: Uses an isolated filesystem environment by:
+  - Creating necessary directories for the container.
+  - Copying the [BusyBox](https://www.busybox.net/downloads/BusyBox.html) binary to serve as a minimal set of Unix utilities.
+  - Mapping symbolic links for essential commands.
+  - Using [chroot](https://man7.org/linux/man-pages/man2/chroot.2.html) to change the root filesystem, ensuring containerized processes operate within their own environment.
+
+- **Mount Namespace**: Impements filesystem isolation by configuring essential mounts within the container's root filesystem. Special filesystems like `proc`, `sys`, and `tmpfs` are mounted using the [mount](https://man7.org/linux/man-pages/man2/mount.2.html) system call to provide necessary system information and temporary storage.
+
+- **Cgroups for Resource Control**: Uses [cgroups (Control Groups)](https://man7.org/linux/man-pages/man7/cgroups.7.html) to manage and limit resource usage for containerized processes. This includes:
+  - Setting memory limits using the `memory.max` file.
+  - Restricting CPU time allocation with the `cpu.max` file.
+  - Assigning processes to cgroups via the `cgroup.procs` file.
+  This ensures each container stays within its allocated resources, like memory and CPU, while maintaining system stability.
+
+- **Networking**: Implements network namespace isolation and virtual Ethernet (veth) pair creation to enable container-host communication. Networking features include:
+  - Configuring IP addresses and routes for both the container and host.
+  - Enabling NAT for internet access using `iptables`.
+  - Using [libmnl](https://www.netfilter.org/projects/libmnl/doxygen/html/) for communication with [netlink sockets](https://man7.org/linux/man-pages/man7/netlink.7.html) to handle network setup programmatically.
+
+- **Cleanup and Resource Management**: Ensures proper resource cleanup to maintain system integrity, including:
+  - Unmounting special filesystems (`proc`, `sys`, `tmpfs`) using [umount2](https://man7.org/linux/man-pages/man2/umount.2.html).
+  - Deleting temporary directories and virtual Ethernet interfaces.
+  - Removing cgroups created for the container.
 
 ## Requirements
 
-- Linux system with namespace support
+- Linux system with namespace support and root provelages
 - See dependencies below
-- Root privileges (for namespace operations)
 
 ## Building
 
@@ -75,6 +93,8 @@ sudo iptables -t nat -L POSTROUTING -n # should show MASQUERADE rule
 ip addr show dev veth0      # should show IP address for veth on host side
 ip link ls                  # should show veth0 on host
 sudo tcpdump -i veth0       # keep this open and run the ping in container and watch traffic on interface
+ls -l /sys/fs/cgroup/mocker # verify cgroup for mocker process
+cat /sys/fs/cgroup/mocker/cgroup.procs # verify process matched mocker (from `ps aux | grep mocker`)
 # exit container and verify cleanup
 ip link ls | grep veth0     # should show nothing (successfully cleaned up when container stops)
 ```
@@ -82,7 +102,6 @@ ip link ls | grep veth0     # should show nothing (successfully cleaned up when 
 ## Current Limitations
 
 - No image handling (uses local busybox only)
-- No resource limits (cgroups not implemented)
 - No user namespace isolation
 - Minimal command set through busybox
 - No persistent storage
@@ -92,7 +111,6 @@ ip link ls | grep veth0     # should show nothing (successfully cleaned up when 
 Possible enhancements:
 
 - Container image support
-- Use cgroups for resource control
 - User namespace support
 - Support for persistent volumes
 - Use libmnl to set NAT rules :question: (not sure how tho :confused:)

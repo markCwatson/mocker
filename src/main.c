@@ -5,8 +5,11 @@
 #include "logging.h"
 #include "networking/networking.h"
 #include "util.h"
+#include "cgroup.h"
 
 #define STACK_SIZE (1024 * 1024)
+// Define namespaces for isolation
+#define CLONE_FLAGS (CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET)
 
 int main(int argc, char *argv[])
 {
@@ -36,14 +39,24 @@ int main(int argc, char *argv[])
     handle_error("malloc");
   }
 
-  // Define namespaces for isolation
-  int clone_flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET;
-
   // Create new process with namespaces
-  pid_t pid = clone(child_function, stack + STACK_SIZE, clone_flags | SIGCHLD, &args);
-  if (pid == -1)
+  pid_t child_pid = clone(child_function, stack + STACK_SIZE, CLONE_FLAGS | SIGCHLD, &args);
+  if (child_pid == -1)
   {
     handle_error("clone");
+  }
+
+  // cgroup setup
+  if (setup_cgroup(child_pid) != 0)
+  {
+    LOG("[MAIN] Warning: Failed to setup cgroup\n");
+    kill(child_pid, SIGKILL);
+    free(stack);
+    handle_error("setup_cgroup");
+  }
+  else
+  {
+    LOG("[MAIN] Cgroup setup complete\n");
   }
 
   // let filesystem setup complete so we can copy /etc/resolv.conf
@@ -51,9 +64,14 @@ int main(int argc, char *argv[])
 
   // Now setup networking
   LOG("[MAIN] Setting up networking...\n");
-  if (setup_networking(pid) != 0)
+  if (setup_networking(child_pid) != 0)
   {
     LOG("[MAIN] Warning: Failed to setup networking\n");
+    kill(child_pid, SIGKILL);
+    cleanup_container_root();
+    cleanup_cgroup();
+    free(stack);
+    handle_error("setup_networking");
   }
   else
   {
@@ -62,14 +80,14 @@ int main(int argc, char *argv[])
 
   // Wait for child to finish
   int status;
-  if (waitpid(pid, &status, 0) == -1)
+  if (waitpid(child_pid, &status, 0) == -1)
   {
     handle_error("waitpid");
   }
 
-  // Cleanup
   cleanup_networking();
   cleanup_container_root();
+  cleanup_cgroup();
   free(stack);
 
   // Report exit status

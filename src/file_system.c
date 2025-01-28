@@ -97,11 +97,6 @@ void setup_container_root(void)
                 strerror(errno));
         }
     }
-
-    // Print busybox info
-    LOG("\nBusybox binary information:\n");
-    snprintf(cmd, sizeof(cmd), "file %s/bin/busybox", CONTAINER_ROOT);
-    system(cmd);
 }
 
 void cleanup_container_root(void)
